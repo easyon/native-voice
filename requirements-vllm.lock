@@ -1,0 +1,35 @@
+# vLLM accelerator for the in-process CosyVoice3 LLM (load_vllm=true).
+#
+#   pip install -r requirements-vllm.lock
+#
+# Upstream CosyVoice3 runs token generation on one shared CUDA stream, so
+# concurrent requests queue on the device (measured 1.47x aggregate at c=4 on
+# A100). vLLM exports the LLM once to <artifact>/vllm and serves all active
+# requests with continuous batching.
+#
+# Upstream support matrix (CosyVoice README, commit 074ca6d): vLLM 0.11.x+
+# (V1 engine) or legacy 0.9.0; 0.10.x untested. vllm 0.19.1 pins
+# torch==2.10.0, matching the verified runtime stack, so it does not force a
+# torch downgrade. It does upgrade transformers (see the note below).
+#
+# Verify on the target GPU before rollout:
+#   python -c "import vllm; print(vllm.__version__)"
+#   python scripts/gpu_smoke.py ... --vllm --concurrency 4 --tasks 16
+# and compare audio + aggregate_audio_per_wall_s with the fp32 baseline.
+
+vllm==0.19.1
+# vllm>=0.19 requires transformers>=4.56,<5; upstream pairs CosyVoice with
+# 4.57.1. This intentionally supersedes transformers==4.51.3 from
+# requirements-cosyvoice.lock; the non-vLLM deployment keeps 4.51.3.
+transformers==4.57.1
+numpy==1.26.4          # keep the upstream pin; scipy needs <1.28
+
+# Known failure modes:
+#   * vLLM wheels bundle their own CUDA kernels. If the wheel targets a newer
+#     CUDA minor than the driver supports, `import vllm` fails with a CUDA
+#     driver error. Check on the target host before enabling in the config.
+#   * load_vllm writes <artifact>/vllm on first start and deletes the
+#     in-process HF LLM layers afterwards; the artifact dir must be writable
+#     (or the export prebuilt and mounted).
+#   * vLLM sampling is not bit-identical to upstream's Python sampler. Same
+#     top-k semantics, but do an audio spot check per voice before switching.

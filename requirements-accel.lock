@@ -1,0 +1,18 @@
+# Optional accelerator stack for the in-process CosyVoice3 engine.
+#
+#   pip install -r requirements-accel.lock     # both vLLM and TensorRT
+#
+# Prefer installing only what you enable: requirements-vllm.lock for
+# load_vllm, requirements-trt.lock for load_trt. This file exists for hosts
+# that want the full set. Both parts change versions relative to the verified
+# fp32 baseline (vLLM upgrades transformers and pins torch; TensorRT is tied to
+# the CUDA build), so enable one at a time and re-run scripts/gpu_smoke.py
+# with the corresponding flag before rollout.
+#
+# Rationale: upstream CosyVoice3 runs the LLM on one shared CUDA stream and
+# the flow decoder is a large DiT. vLLM gives continuous batching for the
+# token generation and TensorRT accelerates the estimator; both are the
+# vendor-supported paths, not local patches.
+
+-r requirements-vllm.lock
+-r requirements-trt.lock

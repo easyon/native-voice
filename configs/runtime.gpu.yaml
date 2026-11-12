@@ -1,0 +1,115 @@
+# Single-node GPU acceptance config: one runtime process owns one GPU.
+#
+# This is the configuration used for real-model validation and capacity
+# measurement. For 100/1000 concurrent callers, keep this engine behind a CPU
+# gateway (or run one replica per GPU) as described in
+# docs/design/cosyvoice-runtime.md; max_concurrent_streams here is the number
+# of callers this GPU replica can serve at once.
+service_name: cosyvoice-runtime
+version: 0.1.0
+environment: prod
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  request_timeout_s: 120
+  ws_idle_timeout_s: 23
+  ws_send_timeout_s: 10
+  max_request_bytes: 1048576
+  max_ws_message_bytes: 1048576
+  max_ws_connections: 1000
+  worker_threads: 32
+  docs_enabled: false
+  access_log: false
+
+auth:
+  enabled: false
+  tenants: []
+  metrics_public: true
+
+engine:
+  type: cosyvoice
+  cosyvoice:
+    # fp16 is OFF deliberately. A100 measurement (single utterance, fp32 vs
+    # fp16, same text): RTF 0.747 -> 1.05 and RSS 3.4GB -> 5.0GB. Upstream
+    # keeps several modules in fp32, so the flag mostly adds cast kernels and
+    # duplicate weights. Re-measure with scripts/gpu_smoke.py --fp16 before
+    # enabling it on a new card.
+    fp16: false
+    # Optional accelerator stack (requirements-accel.lock), off until it has
+    # been verified on the target GPU:
+    #
+    # load_vllm exports the LLM into <artifact>/vllm on first start and runs
+    # token generation through vLLM with continuous batching, so concurrent
+    # requests share decode steps instead of queueing on upstream's single
+    # llm_context stream. It requires vllm (pinned in requirements-accel.lock)
+    # and a writable artifact directory.
+    load_vllm: false
+    # TensorRT for the flow (DiT) decoder estimator. Requires the
+    # flow.decoder.estimator.fp32.onnx file (fetch_model.py --include it) and
+    # builds a per-GPU .plan on first start. trt_concurrent > 1 allows
+    # concurrent token2wav calls to use separate execution contexts.
+    load_trt: false
+    trt_concurrent: 1
+    # Keep fp32 weights and run the LLM/DiT matmuls on tensor cores. Harmless
+    # on A100 (no measurable RTF change); ignored on pre-Ampere cards.
+    tf32: true
+    # Load the checkpoint during startup so the first caller does not pay it.
+    preload: true
+    # Forward the prompt features of zero-shot voices from spk2info instead of
+    # re-extracting the reference wav on every request (~0.4s off cold TTFF).
+    cache_prompt_features: true
+    # One GPU runs one synthesis step at a time because upstream shares one
+    # CUDA stream (llm_context) across threads. Measured on A100 at 8s text:
+    # c=1 1.17x aggregate, c=2 1.56x, c=4 1.47x, c=8 queue timeouts. Keep 2;
+    # to scale further run one process per GPU (or per MIG slice / MPS client)
+    # rather than raising this.
+    max_concurrent: 2
+    sample_rate: 24000
+    queue_size: 64
+    cancel_grace_s: 2
+    warmup_text: "你好，欢迎使用语音合成服务。"
+
+models:
+  cosyvoice3-0.5b:
+    engine: cosyvoice3
+    artifact: /data/models/Fun-CosyVoice3-0.5B
+    default_voice: assistant
+    sample_rate: 24000
+
+voices:
+  # CosyVoice3 zero-shot clone. prompt_text must contain the
+  # <|endofprompt|> marker; the upstream LLM asserts on it.
+  assistant:
+    mode: zero_shot
+    prompt_wav: /data/cvtest/asset/zero_shot_prompt.wav
+    prompt_text: "You are a helpful assistant.<|endofprompt|>希望你以后能够做的比我还好呦。"
+    instruction: ""
+  # SFT voice shipped inside the checkpoint, if spk2info.pt is present.
+  sft-default:
+    mode: sft
+    spk_id: ""
+    instruction: ""
+
+limits:
+  max_text_chars: 20000
+  max_total_chars: 200000
+  max_concurrent_streams: 64
+  acquire_timeout_s: 5
+  sentence_timeout_s: 60
+  first_audio_timeout_s: 10
+  max_request_s: 120
+  max_task_duration_s: 600
+  shutdown_timeout_s: 10
+  ws_queue_size: 32
+  ws_cancel_timeout_s: 5
+  max_stream_audio_bytes: 67108864
+  ssml_strict: true
+
+storage:
+  type: none
+
+logging:
+  level: INFO
+  format: json
+  access_log: false

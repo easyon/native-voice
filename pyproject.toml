@@ -1,0 +1,25 @@
+# Workspace root: tooling and test configuration only.
+# Each distributable project lives under packages/ with its own pyproject.toml.
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+cosyvoice-common = { workspace = true }
+cosyvoice-data = { workspace = true }
+cosyvoice-evaluation = { workspace = true }
+cosyvoice-runtime = { workspace = true }
+cosyvoice-training = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["E501"]

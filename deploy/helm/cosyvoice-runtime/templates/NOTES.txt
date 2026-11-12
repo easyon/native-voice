@@ -1,0 +1,19 @@
+CosyVoice runtime is deployed.
+
+Service: {{ include "cosyvoice-runtime.fullname" . }}:{{ .Values.service.port }}
+Health:  /healthz   Readiness: /readyz   Metrics: /metrics
+
+Check the rollout and readiness:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "cosyvoice-runtime.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Before production:
+  1. Set runtime.auth.apiKeys or runtime.auth.existingSecret. Do not leave auth off.
+  2. Set runtime.auth.metricsToken and scrape /metrics with it.
+  3. Set runtime.models/voices and start with engine.type=mock for a protocol smoke test.
+  4. For real audio, use the GPU image and gpu.enabled=true, or point the gateway
+     at a separately deployed model service.
+  5. Validate first-audio latency and RTF against the capacity model; do not size
+     replicas from CPU alone.
+  6. Keep one uvicorn worker per pod. Metrics and in-process engine state are
+     process-local; scale with replicas, not workers.

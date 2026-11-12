@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cosyvoice-evaluation"
+version = "0.1.0"
+description = "Objective and subjective evaluation for CosyVoice"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = [
+  "cosyvoice-common>=0.1.0,<0.2",
+]
+
+[project.optional-dependencies]
+metrics = ["numpy>=1.26"]
+dev = ["pytest>=8,<9", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

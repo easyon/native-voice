@@ -1,0 +1,27 @@
+# Conda environment for the GPU image.
+#
+# This is the stack validated on A100 + CUDA 12.8. torch/torchaudio are taken
+# from conda (not pip) because the CUDA wheel set is large and easy to get
+# wrong; the runtime venv is created on top with --system-site-packages.
+#
+# Reproducibility TODO: pin the exact build strings (for example
+# pytorch=2.10.0=cuda128_py312*) and commit a `conda-lock` file generated on
+# the GPU host. Channel contents change over time even for the same version
+# number; pinning the build string is required for byte-reproducible solves.
+#
+# Offline/air-gapped builds: populate a micromamba pkgs cache, add
+# `--offline` to the `micromamba create` command in the Dockerfile, and mirror
+# the channel repodata locally.
+name: torch
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+channel_priority: strict
+
+dependencies:
+  - python=3.12
+  - pytorch=2.10.0
+  - torchaudio=2.10.0
+  - pytorch-cuda=12.8
+  - pip

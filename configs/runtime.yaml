@@ -1,0 +1,111 @@
+service_name: cosyvoice-runtime
+version: 0.1.0
+# Set to "prod" (or anything other than "dev") in production. In non-dev mode
+# local file serving requires storage.signing_secret.
+environment: dev
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  request_timeout_s: 120
+  ws_idle_timeout_s: 23
+  ws_send_timeout_s: 10
+  max_request_bytes: 1048576
+  max_ws_message_bytes: 1048576
+  max_ws_connections: 1000
+  # ffmpeg/resampling/file I/O pool. Set to at least the per-pod stream count
+  # when streaming mp3 or resampling; PCM at the engine rate avoids ffmpeg.
+  worker_threads: 32
+  cors_origins: []
+  trusted_hosts: []
+  docs_enabled: false
+  access_log: true
+  proxy_headers: true
+  forwarded_allow_ips: 127.0.0.1
+  keepalive_timeout_s: 5
+  ssl_certfile: ""
+  ssl_keyfile: ""
+
+auth:
+  # 私有化默认关闭；生产必须打开并配置 API Key。
+  enabled: false
+  api_keys: []
+  # 可选：按 key 配置租户级并发/速率上限。
+  # tenants:
+  #   - api_key: tenant-a-key
+  #     id: tenant-a
+  #     max_concurrent_streams: 16
+  #     requests_per_minute: 120
+  #     characters_per_minute: 20000
+  tenants: []
+  # Prometheus 抓取建议使用独立 token；不要将业务 key 暴露给监控系统。
+  metrics_public: false
+  metrics_token: ""
+
+engine:
+  # mock: 本地联调，不加载模型；cosyvoice: 进程内加载 CosyVoice。
+  # 高并发生产建议 gateway 使用 CPU 副本，模型服务独立部署。
+  type: mock
+  mock:
+    chunk_ms: 200
+    realtime: false
+    amplitude: 0.12
+  cosyvoice:
+    load_jit: false
+    load_trt: false
+    fp16: false
+    preload: false
+    max_concurrent: 8
+    sample_rate: 24000
+    queue_size: 64
+    cancel_grace_s: 2
+    warmup_text: "你好，欢迎使用语音合成服务。"
+
+# 业务层直接使用这里的 model key，不做百炼别名映射。
+# 例如业务配置 model="my-tts-prod"，这里就写 my-tts-prod。
+models:
+  my-tts-prod:
+    engine: cosyvoice3
+    artifact: ./models/Fun-CosyVoice3-0.5B
+    default_voice: voice-a
+    sample_rate: 24000
+
+# 业务层直接使用这里的 voice key，不做百炼音色 ID 映射。
+voices:
+  voice-a:
+    spk_id: voice-a
+    mode: sft                 # sft | instruct2 | zero_shot | auto
+    instruct: "你是一个温柔、自然的助手。"
+    prompt_wav: ""
+    prompt_text: ""
+    embedding: ""
+
+limits:
+  max_text_chars: 20000
+  max_total_chars: 200000
+  max_concurrent_streams: 64
+  acquire_timeout_s: 5
+  sentence_timeout_s: 60
+  first_audio_timeout_s: 10
+  max_request_s: 120
+  max_task_duration_s: 600
+  shutdown_timeout_s: 10
+  ws_queue_size: 32
+  ws_cancel_timeout_s: 5
+  max_stream_audio_bytes: 67108864
+  ssml_strict: true
+
+storage:
+  type: local                # local | none
+  dir: ./data/audio
+  base_url: http://localhost:8000
+  ttl_s: 86400
+  serve_files: true
+  # 生产必须设置；建议通过 COSYVOICE_STORAGE_SIGNING_SECRET 注入。
+  signing_secret: ""
+  cleanup_interval_s: 3600
+
+logging:
+  level: INFO
+  format: text               # text | json；生产建议 json
+  access_log: true

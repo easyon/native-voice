@@ -1,0 +1,53 @@
+# CPU gateway / shared runtime dependencies.
+#
+# Source of truth: `pip freeze` of the repository dev venv on 2026-11-12,
+# plus PyPI checks that every pin has a Linux cp312 wheel (or a pure-Python
+# wheel). `uvloop` is Linux-only and therefore absent from the Windows dev
+# freeze; 0.21.0 is the current uvicorn[standard] companion.
+#
+# Install before the local packages:
+#   pip install -r requirements-runtime.lock
+#   pip install --no-deps /wheels/*.whl
+#
+# This file intentionally has no torch/onnxruntime entries. The GPU image gets
+# torch from conda and engine dependencies from requirements-cosyvoice.lock.
+#
+# TODO: regenerate with hashes on a networked Linux host. numpy 2.4.6 and
+# recent wheels are tagged manylinux_2_27/2_28 (Ubuntu 22.04 glibc 2.35 and
+# Debian bookworm glibc 2.36 both accept them), so pass both platform tags:
+#   pip download --only-binary=:all: \
+#     --platform manylinux_2_28_x86_64 --platform manylinux2014_x86_64 \
+#     --python-version 3.12 --implementation cp --abi cp312 \
+#     -d wheelhouse -r requirements-runtime.lock
+#   pip hash wheelhouse/*.whl > wheelhouse/SHA256SUMS
+
+# --- FastAPI / ASGI stack ---
+fastapi==0.162.5
+starlette==1.10.0
+pydantic==2.14.3
+pydantic-core==2.50.4
+annotated-types==0.8.0
+annotated-doc==0.0.6
+typing-extensions==4.16.0
+typing-inspection==0.4.5
+anyio==4.16.0
+idna==3.20
+
+# FastAPI 0.162.x requires opentelemetry-api directly (not only via extras).
+opentelemetry-api==1.45.2
+
+# --- uvicorn[standard] ---
+uvicorn==0.54.0
+click==8.5.1
+h11==0.16.0
+httptools==0.9.0
+python-dotenv==1.2.4
+PyYAML==6.0.3
+watchfiles==1.3.0
+websockets==17.4
+uvloop==0.21.0
+
+# --- numeric / audio ---
+# The GPU lock pins numpy==1.26.4 and is installed afterwards, downgrading
+# this pin. scipy 1.11.4 (upstream CosyVoice pin) requires numpy<1.28.
+numpy==2.4.6

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cosyvoice-common"
+version = "0.1.0"
+description = "Shared audio and text utilities for CosyVoice training and runtime"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = []
+
+[project.optional-dependencies]
+audio = ["numpy>=1.26"]
+dev = ["pytest>=8,<9", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

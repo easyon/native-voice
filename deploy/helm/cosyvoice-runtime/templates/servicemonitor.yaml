@@ -1,0 +1,27 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cosyvoice-runtime.fullname" . }}
+  labels:
+    {{- include "cosyvoice-runtime.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cosyvoice-runtime.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+      {{- if not .Values.runtime.auth.metricsPublic }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "cosyvoice-runtime.secretName" . }}
+          key: {{ .Values.runtime.auth.metricsTokenKey }}
+      {{- end }}
+{{- end }}

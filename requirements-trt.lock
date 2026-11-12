@@ -1,0 +1,22 @@
+# TensorRT for the CosyVoice3 flow (DiT) decoder estimator (load_trt=true).
+#
+#   pip install -r requirements-trt.lock
+#
+# Upstream builds flow.decoder.estimator.fp32.<gpu>.plan from
+# flow.decoder.estimator.fp32.onnx on first start and reuses it afterwards.
+# The plan is GPU-architecture specific: build one per GPU type (or per MIG
+# slice class), and mount it read-only in production.
+#
+# Fetch the ONNX (it is excluded from the default checkpoint download):
+#   python scripts/fetch_model.py --dest ... --include flow.decoder.estimator.fp32.onnx
+#
+# Verify on the target GPU:
+#   python scripts/gpu_smoke.py ... --trt --trt-concurrent 2
+# The first load compiles the engine (minutes); later loads are fast.
+
+tensorrt-cu12==10.13.3.9
+tensorrt-cu12-bindings==10.13.3.9
+tensorrt-cu12-libs==10.13.3.9
+
+# Do not combine with fp16: upstream warns that the fp16 DiT TensorRT engine
+# has performance and quality problems. Keep engine.cosyvoice.fp16=false.
