@@ -30,6 +30,7 @@ jobs:
         run: |
           ruff check packages tests scripts
           bash -n deploy/bootstrap-gpu.sh
+          bash -n deploy/prepare-bundle.sh
           bash -n scripts/gpu_env.sh
       - name: Test
         run: pytest -q

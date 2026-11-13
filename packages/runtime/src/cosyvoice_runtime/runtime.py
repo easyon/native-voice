@@ -11,11 +11,13 @@ from cosyvoice_common.errors import (
 )
 from cosyvoice_common.text import preprocess_text
 
+from .cloning import ClonedVoiceStore
 from .core.lifecycle import Lifecycle
 from .core.limits import TenantLimiter
 from .core.orchestrator import SynthesisOrchestrator
 from .engine_factory import create_engine
 from .engines.base import TTSEngine
+from .gpu_metrics import GpuSampler
 from .metrics import Metrics
 from .registry import Registry
 from .schemas import SpeechInput, SynthesisRequest
@@ -36,8 +38,14 @@ class Runtime:
         self.config = config
         self.registry = Registry(config)
         self.metrics = Metrics(config.service_name, config.version)
+        self.gpu_sampler = GpuSampler(
+            self.metrics,
+            interval_s=config.metrics.gpu_sampling_interval_s,
+            device=config.metrics.gpu_device,
+        )
         self.lifecycle = Lifecycle(config.limits.shutdown_timeout_s)
         self.limiter = TenantLimiter(config.limits)
+        self.cloned_voices = ClonedVoiceStore(config.cloning)
         self.engine: TTSEngine = create_engine(config)
         self.store: AudioStore = create_store(config.storage)
         self.orchestrator = SynthesisOrchestrator(
@@ -50,10 +58,18 @@ class Runtime:
 
     async def startup(self) -> None:
         await self.store.startup()
+        # Load cloned voices before the engine starts so its prompt-feature
+        # cache sees them alongside the voices from the YAML config.
+        await self.cloned_voices.startup()
+        for voice_id, voice in self.cloned_voices.voice_configs().items():
+            self.registry.add_voice(voice_id, voice)
         await self.engine.startup()
         await self._warmup()
         self._ready = True
         self.metrics.set_ready(True)
+        # Start sampling only after the model loaded: the first sample then
+        # reflects steady-state memory instead of a half-initialized process.
+        self.gpu_sampler.start()
         logger.info(
             "runtime started: engine=%s models=%s voices=%s",
             self.config.engine.type,
@@ -75,6 +91,7 @@ class Runtime:
             logger.info("all in-flight requests drained")
         if not await self.orchestrator.wait_idle(self.config.limits.shutdown_timeout_s):
             logger.warning("engine streams did not drain before shutdown timeout")
+        self.gpu_sampler.stop()
         await self.engine.shutdown()
         await self.store.shutdown()
         logger.info("runtime stopped")

@@ -132,6 +132,15 @@
   .inline input[type="checkbox"] { width: auto; }
   .inline label { margin: 0; font-size: 12.5px; color: var(--muted); }
   .grow { flex: 1; min-width: 0; }
+  .clone-box {
+    margin: 2px 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: var(--field);
+  }
+  .clone-box > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .clone-box[open] > summary { margin-bottom: 12px; }
 </style>
 </head>
 <body>
@@ -229,6 +238,40 @@
         </div>
       </div>
 
+      <details class="clone-box" id="clone-box">
+        <summary>声音克隆 · 上传或录音</summary>
+
+        <div class="field" style="margin-top:12px">
+          <label for="clone-file">参考音频（1–30 秒，≤16MB）</label>
+          <input type="file" id="clone-file" accept="audio/*">
+          <div class="inline" style="margin-top:7px">
+            <button type="button" class="small" id="clone-record">开始录音</button>
+            <span class="hint" id="clone-record-status">录音需要 localhost 或 HTTPS</span>
+          </div>
+          <audio id="clone-preview" controls hidden style="margin-top:8px;width:100%"></audio>
+        </div>
+
+        <div class="field">
+          <label for="clone-transcript">参考音频的文字（必须与录音内容一致）</label>
+          <textarea id="clone-transcript" style="min-height:70px" placeholder="例如：希望你以后能够做的比我还好呦。"></textarea>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="clone-name">音色名称（可选）</label>
+            <input type="text" id="clone-name" placeholder="我的音色" autocomplete="off">
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end">
+            <button type="button" class="primary" id="clone-submit" style="width:100%">创建克隆音色</button>
+          </div>
+        </div>
+
+        <div class="hint" id="clone-hint"></div>
+        <div class="inline" style="margin-top:8px">
+          <button type="button" class="small danger" id="clone-delete" disabled>删除当前克隆音色</button>
+        </div>
+      </details>
+
       <div class="actions">
         <button type="button" class="primary" id="synthesize">开始合成</button>
         <button type="button" class="danger" id="stop" disabled>停止</button>
@@ -281,6 +324,12 @@
       <code>auth.enabled=true</code> 时，本页的 WebSocket 模式会以 4401 关闭，
       请改用同步/SSE 模式，或在内网验收时临时关闭鉴权。同步/SSE 会正常携带 Bearer key。
     </p>
+    <h3>声音克隆</h3>
+    <p>
+      上传或录制 1–30 秒参考音频，填写与音频完全一致的文字，点击“创建克隆音色”。
+      录音需要页面处于 localhost 或 HTTPS；其他环境请用上传。克隆音色会出现在 voice
+      下拉框中（带“克隆”标记），也可以在这里删除。
+    </p>
     <h3>格式与播放</h3>
     <p>
       PCM 按 16-bit 单声道实时调度播放；wav 流会剥掉首帧的 44 字节头；
@@ -319,6 +368,11 @@
     audio: $('audio'), download: $('download'), requestId: $('request-id'),
     log: $('log'), clearLog: $('clear-log'),
     mTtff: $('m-ttff'), mTotal: $('m-total'), mBytes: $('m-bytes'), mDuration: $('m-duration'),
+    cloneFile: $('clone-file'), cloneRecord: $('clone-record'),
+    cloneRecordStatus: $('clone-record-status'), clonePreview: $('clone-preview'),
+    cloneTranscript: $('clone-transcript'), cloneName: $('clone-name'),
+    cloneSubmit: $('clone-submit'), cloneHint: $('clone-hint'),
+    cloneDelete: $('clone-delete'),
   };
 
   // ---------------------------------------------------------------- helpers
@@ -389,6 +443,15 @@
   let activeSink = null;
   let activeSocket = null;
   let playbackUrl = null;
+  let cloneBlob = null;
+  let cloneFileName = '';
+  let cloneSource = 'upload';
+  let clonePreviewUrl = null;
+  let clonedVoiceIds = new Set();
+  let mediaRecorder = null;
+  let recordChunks = [];
+  let recordStream = null;
+  let recordTimer = null;
   const metrics = { started: 0, first: null, bytes: 0, duration: 0, ended: null };
 
   function resetMetrics() {
@@ -578,10 +641,15 @@
   }
 
   function apiHeaders(extra) {
-    const headers = Object.assign({
+    const headers = authHeaders(Object.assign({
       'Content-Type': 'application/json',
       'X-Request-Id': uuid(),
-    }, extra || {});
+    }, extra || {}));
+    return headers;
+  }
+
+  function authHeaders(extra) {
+    const headers = Object.assign({}, extra || {});
     const key = els.apiKey.value.trim();
     if (key) headers.Authorization = 'Bearer ' + key;
     return headers;
@@ -891,6 +959,204 @@
     els.synthesize.textContent = running ? '合成中…' : '开始合成';
   }
 
+  // ---------------------------------------------------------------- cloning
+  function setCloneHint(message) {
+    els.cloneHint.textContent = message;
+  }
+
+  function setCloneAudio(blob, filename, source) {
+    cloneBlob = blob;
+    cloneFileName = filename;
+    cloneSource = source;
+    if (clonePreviewUrl) URL.revokeObjectURL(clonePreviewUrl);
+    clonePreviewUrl = URL.createObjectURL(blob);
+    els.clonePreview.src = clonePreviewUrl;
+    els.clonePreview.hidden = false;
+    setCloneHint(filename + ' · ' + fmtBytes(blob.size));
+  }
+
+  function pickRecordingMime() {
+    if (!window.MediaRecorder) return '';
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+    ];
+    for (const type of candidates) {
+      try {
+        if (MediaRecorder.isTypeSupported(type)) return type;
+      } catch { /* unsupported candidate */ }
+    }
+    return '';
+  }
+
+  function extensionForMime(type) {
+    if (type.includes('ogg')) return 'ogg';
+    if (type.includes('mp4')) return 'm4a';
+    return 'webm';
+  }
+
+  function cleanupRecording() {
+    if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+    if (recordStream) {
+      for (const track of recordStream.getTracks()) {
+        try { track.stop(); } catch { /* already stopped */ }
+      }
+      recordStream = null;
+    }
+  }
+
+  async function toggleRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      setCloneHint('当前浏览器不支持录音，请改用上传音频。');
+      return;
+    }
+    try {
+      recordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      setCloneHint('无法访问麦克风：' + error.message + '（录音需要 localhost 或 HTTPS）');
+      return;
+    }
+
+    const mime = pickRecordingMime();
+    try {
+      mediaRecorder = mime
+        ? new MediaRecorder(recordStream, { mimeType: mime })
+        : new MediaRecorder(recordStream);
+    } catch (error) {
+      cleanupRecording();
+      setCloneHint('无法开始录音：' + error.message);
+      return;
+    }
+
+    recordChunks = [];
+    const started = now();
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size) recordChunks.push(event.data);
+    };
+    mediaRecorder.onstop = () => {
+      const type = mediaRecorder.mimeType || mime || 'audio/webm';
+      const blob = new Blob(recordChunks, { type });
+      cleanupRecording();
+      if (blob.size) {
+        setCloneAudio(blob, 'record.' + extensionForMime(type), 'record');
+        setCloneHint('已录制 ' + fmtBytes(blob.size) + '，请填写这段音频的文字内容。');
+      }
+      els.cloneRecord.textContent = '开始录音';
+      els.cloneRecordStatus.textContent = '录音需要 localhost 或 HTTPS';
+    };
+    mediaRecorder.start();
+    els.cloneRecord.textContent = '停止录音';
+    recordTimer = setInterval(() => {
+      const elapsed = (now() - started) / 1000;
+      els.cloneRecordStatus.textContent = '录音中 ' + elapsed.toFixed(1) + 's（最多 30s）';
+      if (elapsed >= 30 && mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
+    }, 200);
+  }
+
+  async function cloneVoice() {
+    const transcript = els.cloneTranscript.value.trim();
+    if (!cloneBlob) {
+      setCloneHint('请先上传或录制一段参考音频。');
+      return;
+    }
+    if (!transcript) {
+      setCloneHint('请填写参考音频的文字内容，内容必须与录音一致。');
+      return;
+    }
+    const form = new FormData();
+    form.append('audio', cloneBlob, cloneFileName || 'prompt.wav');
+    form.append('transcript', transcript);
+    form.append('name', els.cloneName.value.trim());
+    form.append('source', cloneSource);
+
+    els.cloneSubmit.disabled = true;
+    setCloneHint('正在创建克隆音色…');
+    try {
+      const response = await fetch(base + 'api/v1/voices/clone', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: form,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw readApiError(payload, response.status);
+      const voice = payload.voice || {};
+      log('克隆音色已创建：' + voice.id + '（' + (voice.duration_s || '?') + 's）', 'ok');
+      setCloneHint('已创建 ' + voice.id + '，可以直接用它合成语音。');
+      els.cloneTranscript.value = '';
+      els.cloneName.value = '';
+      cloneBlob = null;
+      if (clonePreviewUrl) { URL.revokeObjectURL(clonePreviewUrl); clonePreviewUrl = null; }
+      els.clonePreview.hidden = true;
+      els.cloneFile.value = '';
+      await loadVoices();
+      if (voice.id) {
+        els.voice.value = voice.id;
+        updateCloneDelete();
+      }
+    } catch (error) {
+      const detail = error.code ? error.code + ': ' + error.message : error.message;
+      setCloneHint(detail);
+      log('克隆失败：' + detail, 'err');
+    } finally {
+      els.cloneSubmit.disabled = false;
+    }
+  }
+
+  async function deleteClone() {
+    const voiceId = els.voice.value;
+    if (!clonedVoiceIds.has(voiceId)) return;
+    if (!window.confirm('删除克隆音色 ' + voiceId + '？')) return;
+    try {
+      const response = await fetch(
+        base + 'api/v1/voices/' + encodeURIComponent(voiceId),
+        { method: 'DELETE', headers: authHeaders() },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw readApiError(payload, response.status);
+      log('克隆音色已删除：' + voiceId, 'ok');
+      setCloneHint('已删除 ' + voiceId);
+      await loadVoices();
+    } catch (error) {
+      const detail = error.code ? error.code + ': ' + error.message : error.message;
+      setCloneHint('删除失败：' + detail);
+      log('删除失败：' + detail, 'err');
+    }
+  }
+
+  function updateCloneDelete() {
+    els.cloneDelete.disabled = !clonedVoiceIds.has(els.voice.value);
+  }
+
+  async function loadVoices() {
+    try {
+      const response = await fetch(base + 'api/v1/voices', {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const payload = await response.json();
+      const voices = Array.isArray(payload.voices) ? payload.voices : [];
+      clonedVoiceIds = new Set(
+        voices.filter((voice) => voice.cloned).map((voice) => voice.id),
+      );
+      fillVoiceOptions(voices);
+      return true;
+    } catch (error) {
+      // Older servers, or a missing API key while auth is enabled: the page
+      // still works with the configured voices from /readyz.
+      log('音色列表不可用：' + error.message, 'warn');
+      return false;
+    }
+  }
+
   // ---------------------------------------------------------------- status
   function fillSelect(select, values) {
     const previous = select.value;
@@ -911,6 +1177,29 @@
     if (values.includes(previous)) select.value = previous;
   }
 
+  function fillVoiceOptions(voices) {
+    const previous = els.voice.value;
+    els.voice.replaceChildren();
+    if (!voices.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '（无可用音色）';
+      els.voice.append(option);
+      updateCloneDelete();
+      return;
+    }
+    for (const voice of voices) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = voice.id + (voice.cloned ? '（克隆）' : '');
+      els.voice.append(option);
+    }
+    if (voices.some((voice) => voice.id === previous)) {
+      els.voice.value = previous;
+    }
+    updateCloneDelete();
+  }
+
   async function refreshStatus() {
     setStatus('warn', '检查中…');
     try {
@@ -921,14 +1210,17 @@
       if (ready.ok) {
         setStatus('ok', 'ready · ' + (readyBody.engine || 'engine'));
         fillSelect(els.model, readyBody.models || []);
-        fillSelect(els.voice, readyBody.voices || []);
         log('服务就绪：models=' + (readyBody.models || []).join(',')
           + ' voices=' + (readyBody.voices || []).join(','), 'ok');
       } else {
         setStatus('err', (readyBody.status || 'not ready'));
         fillSelect(els.model, readyBody.models || []);
-        fillSelect(els.voice, readyBody.voices || []);
         log('服务未就绪：' + JSON.stringify(readyBody), 'warn');
+      }
+      const voicesOk = await loadVoices();
+      if (!voicesOk) {
+        fillSelect(els.voice, readyBody.voices || []);
+        updateCloneDelete();
       }
       if (!health.ok && !ready.ok) setStatus('err', '服务不可达');
       els.statusText.title = 'version ' + (healthBody.version || '?')
@@ -999,6 +1291,15 @@
   els.stop.addEventListener('click', stop);
   els.copyCurl.addEventListener('click', copyCurl);
   els.clearLog.addEventListener('click', () => els.log.replaceChildren());
+  els.cloneFile.addEventListener('change', () => {
+    const file = els.cloneFile.files && els.cloneFile.files[0];
+    if (file) setCloneAudio(file, file.name, 'upload');
+  });
+  els.cloneRecord.addEventListener('click', toggleRecording);
+  els.cloneSubmit.addEventListener('click', cloneVoice);
+  els.cloneDelete.addEventListener('click', deleteClone);
+  els.voice.addEventListener('change', updateCloneDelete);
+  els.apiKey.addEventListener('change', loadVoices);
   els.toggleKey.addEventListener('click', () => {
     const visible = els.apiKey.type === 'text';
     els.apiKey.type = visible ? 'password' : 'text';

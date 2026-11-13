@@ -32,6 +32,8 @@ typing-extensions==4.16.0
 typing-inspection==0.4.5
 anyio==4.16.0
 idna==3.20
+# Multipart parsing for POST /api/v1/voices/clone.
+python-multipart==0.0.33
 
 # FastAPI 0.162.x requires opentelemetry-api directly (not only via extras).
 opentelemetry-api==1.45.2

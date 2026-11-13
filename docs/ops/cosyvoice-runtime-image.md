@@ -101,9 +101,10 @@ torch 仍是 conda 的 2.10.0+cu128（满足 vLLM 的 pin，不会被 pip 替换
 4.51.3 升到 4.57.1。构建时只校验包元数据，不 import（构建机通常没有 GPU）；真实可用性
 必须在目标 GPU 上用 runbook 7.3 的 `gpu_smoke.py --vllm/--trt` 验证。
 
-加速栈需要在模型目录里生成 `<artifact>/vllm` 和 `flow.decoder.estimator.fp32.<gpu>.plan`，
+加速栈需要在模型目录里生成 `<artifact>/vllm` 和 `flow.decoder.estimator.fp32.mygpu.plan`，
 而模型卷通常只读挂载；**先在一台可写主机上用同一镜像预生成，再作为只读卷挂载**，
-否则启动会直接返回 503（`<artifact> is not writable`）。plan 与 GPU 架构绑定，不能跨卡复用。
+否则启动会直接返回 503（`<artifact> is not writable`）。plan 与 GPU 架构绑定，不能跨卡复用；
+文件名里的 `mygpu` 是上游的固定字面量，换卡后**看不出** plan 是否过期，只能删掉重编或看加载报错。
 
 ## 4. 启动与模型资产挂载
 

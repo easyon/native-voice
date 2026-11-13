@@ -165,6 +165,18 @@ class CosyVoiceEngine(TTSEngine):
         if not artifact or not os.path.exists(artifact):
             raise service_unavailable(f"model artifact not found: {artifact}")
         self._check_acceleration(artifact)
+        # Newer torchaudio routes all I/O through TorchCodec; decode prompt
+        # wavs with soundfile so the engine does not depend on that pairing.
+        # Upstream also imports modelscope at module import time and only uses
+        # it for repo-id checkpoints, which this runtime never passes.
+        from .cosyvoice_compat import (
+            install_modelscope_stub,
+            install_vllm_engine_overrides,
+            install_wav_loader,
+            install_wetext_assets,
+        )
+
+        install_modelscope_stub()
         try:
             from cosyvoice.cli import cosyvoice as cv
         except ImportError as exc:  # pragma: no cover - depends on deployment
@@ -173,12 +185,15 @@ class CosyVoiceEngine(TTSEngine):
                 "or set engine.type=mock"
             ) from exc
 
-        # Newer torchaudio routes all I/O through TorchCodec; decode prompt
-        # wavs with soundfile so the engine does not depend on that pairing.
-        from .cosyvoice_compat import install_wav_loader, install_wetext_assets
-
         install_wav_loader()
         install_wetext_assets()
+        if self.config.load_vllm and not install_vllm_engine_overrides(
+            self.config.vllm.overrides()
+        ):
+            logger.warning(
+                "could not apply vLLM engine sizing; upstream hardcodes "
+                "gpu_memory_utilization=0.2, which may not start on this GPU"
+            )
         if self.config.tf32:
             self._enable_tf32()
 

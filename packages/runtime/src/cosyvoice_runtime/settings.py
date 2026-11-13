@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -77,10 +77,54 @@ class AuthConfig(_Base):
     metrics_token: str = ""
 
 
+class MetricsConfig(_Base):
+    # The runtime exports request/stream/RTF metrics itself. GPU utilization
+    # is the only signal it cannot observe from Python without a driver
+    # binding, so a low-rate nvidia-smi sampler publishes it for dashboards and
+    # replica autoscaling. 0 disables sampling (and the subprocess entirely).
+    gpu_sampling_interval_s: float = Field(default=5.0, ge=0.0)
+    gpu_device: int = Field(default=0, ge=0)
+
+
 class MockEngineConfig(_Base):
     chunk_ms: int = 200
     realtime: bool = False
     amplitude: float = 0.12
+
+
+class VllmEngineConfig(_Base):
+    """Engine sizing for the vLLM LLM path.
+
+    ``cosyvoice.cli.model.CosyVoiceModel.load_vllm`` hardcodes
+    ``gpu_memory_utilization=0.2`` and leaves the model's full 32768-token
+    context in place. With the flow / HiFi-GAN / tokenizer models already
+    resident, 0.2 of a 32GB card is not enough for weights plus the
+    torch.compile activation peak: the engine aborts during KV-cache init with
+    "available KV cache memory (0.1 GiB)". These knobs let a deployment size
+    the LLM to its card instead. They are applied by
+    :func:`cosyvoice_runtime.engines.cosyvoice_compat.install_vllm_engine_overrides`.
+
+    ``gpu_memory_utilization`` is a fraction of *total* GPU memory (vLLM
+    semantics), not of the memory that is free after the TTS modules load.
+    Leave at least ~25% of the card free when the flow decoder and HiFi-GAN
+    run in the same process.
+    """
+
+    gpu_memory_utilization: float = Field(default=0.5, gt=0.0, le=1.0)
+    # Upstream segments text into <=80-token chunks before the LLM, so a
+    # request rarely exceeds a few thousand tokens (prompt + generated audio).
+    max_model_len: int = Field(default=8192, ge=256)
+    max_num_seqs: int = Field(default=32, ge=1, le=1024)
+    max_num_batched_tokens: int = Field(default=8192, ge=256)
+
+    def overrides(self) -> dict[str, Any]:
+        """EngineArgs fields to force, in vLLM's own spelling."""
+        return {
+            "gpu_memory_utilization": self.gpu_memory_utilization,
+            "max_model_len": self.max_model_len,
+            "max_num_seqs": self.max_num_seqs,
+            "max_num_batched_tokens": self.max_num_batched_tokens,
+        }
 
 
 class CosyVoiceEngineConfig(_Base):
@@ -99,6 +143,10 @@ class CosyVoiceEngineConfig(_Base):
     # (<artifact>/vllm) and steps all active requests together (continuous
     # batching), which is the vendor-supported fix for that bottleneck.
     load_vllm: bool = False
+    # Sizing for the vLLM engine. See VllmEngineConfig: upstream hardcodes
+    # gpu_memory_utilization=0.2, which cannot start on a 32GB card once the
+    # TTS modules own several GB.
+    vllm: VllmEngineConfig = Field(default_factory=VllmEngineConfig)
     # TensorRT execution contexts for the flow (DiT) decoder estimator. >1
     # lets concurrent token2wav calls use separate contexts instead of
     # serializing on one. Only used with load_trt.
@@ -180,6 +228,29 @@ class StorageConfig(_Base):
     cleanup_interval_s: float = 3_600.0
 
 
+class CloningConfig(_Base):
+    """Zero-shot voice cloning from a reference recording.
+
+    Each cloned voice is one directory under ``dir`` containing a normalized
+    ``prompt.wav`` and ``meta.json``. The runtime loads them at startup and
+    registers them as regular zero-shot voices, so no model reload is needed
+    when a new voice is created.
+    """
+
+    enabled: bool = True
+    dir: str = "./data/voices"
+    # The upload is spooled by Starlette and then normalized; cap both the
+    # request body (middleware) and the bytes we read into memory.
+    max_upload_bytes: int = 16 * 1024 * 1024
+    min_duration_s: float = 1.0
+    max_duration_s: float = 30.0
+    # Target rate for ffmpeg normalization. 24k keeps enough detail for the
+    # speaker encoder, which resamples to 16k internally.
+    prompt_sample_rate: int = 24_000
+    # Transcript length is bounded so one upload cannot bloat the metadata file.
+    max_transcript_chars: int = 2_000
+
+
 class LoggingConfig(_Base):
     level: str = "INFO"
     format: Literal["text", "json"] = "text"
@@ -197,7 +268,9 @@ class RuntimeConfig(_Base):
     models: dict[str, ModelConfig] = Field(default_factory=dict)
     voices: dict[str, VoiceConfig] = Field(default_factory=dict)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    cloning: CloningConfig = Field(default_factory=CloningConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @model_validator(mode="after")
@@ -271,14 +344,23 @@ def _env_int(name: str) -> int | None:
         raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
 
 
+def _env_float(name: str) -> float | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number, got {raw!r}") from exc
+
+
 def _apply_env_overrides(raw: dict) -> dict:
     """Small set of env overrides for container deployments.
 
     Secrets should come from env/secret mounts, not from the YAML file.
-    The worker settings also let one config file drive every process in a
-    CUDA-MPS pool (see deploy/mps/README.md): the pool sets
-    COSYVOICE_MAX_CONCURRENT / COSYVOICE_TRT_CONCURRENT per worker instead of
-    generating one YAML file per port.
+    The engine settings also let a container image or Helm chart override
+    COSYVOICE_MAX_CONCURRENT / COSYVOICE_TRT_CONCURRENT per environment
+    without generating a YAML variant per deployment.
     """
     engine_type = os.getenv("COSYVOICE_ENGINE_TYPE")
     if engine_type:
@@ -299,6 +381,22 @@ def _apply_env_overrides(raw: dict) -> dict:
         enabled = _env_bool(env_name)
         if enabled is not None:
             cosyvoice[key] = enabled
+
+    # vLLM sizing is per-card (32GB vs 48GB vs 80GB) and per-image, so it must
+    # be overridable from the pod spec without a config variant per host.
+    vllm = cosyvoice.get("vllm")
+    if not isinstance(vllm, dict):
+        vllm = {}
+        cosyvoice["vllm"] = vllm
+    for env_name, key, cast in (
+        ("COSYVOICE_VLLM_GPU_MEMORY_UTILIZATION", "gpu_memory_utilization", _env_float),
+        ("COSYVOICE_VLLM_MAX_MODEL_LEN", "max_model_len", _env_int),
+        ("COSYVOICE_VLLM_MAX_NUM_SEQS", "max_num_seqs", _env_int),
+        ("COSYVOICE_VLLM_MAX_NUM_BATCHED_TOKENS", "max_num_batched_tokens", _env_int),
+    ):
+        value = cast(env_name)
+        if value is not None:
+            vllm[key] = value
 
     api_keys = os.getenv("COSYVOICE_API_KEYS")
     if api_keys is not None:
@@ -321,6 +419,13 @@ def _apply_env_overrides(raw: dict) -> dict:
     signing_secret = os.getenv("COSYVOICE_STORAGE_SIGNING_SECRET")
     if signing_secret is not None:
         raw.setdefault("storage", {})["signing_secret"] = signing_secret
+
+    cloning_dir = os.getenv("COSYVOICE_CLONING_DIR")
+    if cloning_dir:
+        raw.setdefault("cloning", {})["dir"] = cloning_dir
+    cloning_enabled = _env_bool("COSYVOICE_CLONING_ENABLED")
+    if cloning_enabled is not None:
+        raw.setdefault("cloning", {})["enabled"] = cloning_enabled
 
     log_level = os.getenv("COSYVOICE_LOG_LEVEL")
     if log_level:

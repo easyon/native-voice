@@ -97,6 +97,14 @@ data:
       serve_files: {{ .Values.runtime.storage.serveFiles }}
       cleanup_interval_s: {{ .Values.runtime.storage.cleanupIntervalS }}
 
+    cloning:
+      enabled: {{ .Values.runtime.cloning.enabled }}
+      dir: {{ .Values.runtime.cloning.dir | quote }}
+      max_upload_bytes: {{ .Values.runtime.cloning.maxUploadBytes }}
+      min_duration_s: {{ .Values.runtime.cloning.minDurationS }}
+      max_duration_s: {{ .Values.runtime.cloning.maxDurationS }}
+      prompt_sample_rate: {{ .Values.runtime.cloning.promptSampleRate }}
+
     logging:
       level: {{ .Values.runtime.logging.level | quote }}
       format: {{ .Values.runtime.logging.format | quote }}

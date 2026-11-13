@@ -108,6 +108,18 @@ storage:
   signing_secret: ""
   cleanup_interval_s: 3600
 
+# Zero-shot voice cloning from an uploaded or recorded reference clip. Each
+# voice is a directory under `dir` with prompt.wav and meta.json; cloned voices
+# appear in /api/v1/voices and can be used by the normal TTS API.
+cloning:
+  enabled: true
+  dir: ./data/voices
+  max_upload_bytes: 16777216
+  min_duration_s: 1.0
+  max_duration_s: 30.0
+  prompt_sample_rate: 24000
+  max_transcript_chars: 2000
+
 logging:
   level: INFO
   format: text               # text | json；生产建议 json

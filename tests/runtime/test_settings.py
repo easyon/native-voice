@@ -10,6 +10,10 @@ WORKER_ENV = (
     "COSYVOICE_TRT_CONCURRENT",
     "COSYVOICE_LOAD_TRT",
     "COSYVOICE_LOAD_VLLM",
+    "COSYVOICE_VLLM_GPU_MEMORY_UTILIZATION",
+    "COSYVOICE_VLLM_MAX_MODEL_LEN",
+    "COSYVOICE_VLLM_MAX_NUM_SEQS",
+    "COSYVOICE_VLLM_MAX_NUM_BATCHED_TOKENS",
 )
 
 
@@ -55,6 +59,47 @@ def test_unset_worker_env_keeps_yaml_values(tmp_path: Path) -> None:
     assert config.engine.cosyvoice.trt_concurrent == 1
     assert config.engine.cosyvoice.load_trt is False
     assert config.engine.cosyvoice.load_vllm is False
+
+
+def test_vllm_sizing_defaults_are_applied(tmp_path: Path) -> None:
+    config = load_config(_write_config(tmp_path / "runtime.yaml"))
+
+    vllm = config.engine.cosyvoice.vllm
+    assert vllm.gpu_memory_utilization == 0.5
+    assert vllm.max_model_len == 8192
+    assert vllm.max_num_seqs == 32
+    assert vllm.max_num_batched_tokens == 8192
+    assert vllm.overrides()["gpu_memory_utilization"] == 0.5
+
+
+def test_vllm_env_overrides_sizing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = _write_config(tmp_path / "runtime.yaml")
+    monkeypatch.setenv("COSYVOICE_VLLM_GPU_MEMORY_UTILIZATION", "0.35")
+    monkeypatch.setenv("COSYVOICE_VLLM_MAX_MODEL_LEN", "4096")
+    monkeypatch.setenv("COSYVOICE_VLLM_MAX_NUM_SEQS", "16")
+    monkeypatch.setenv("COSYVOICE_VLLM_MAX_NUM_BATCHED_TOKENS", "4096")
+
+    config = load_config(config_path)
+
+    vllm = config.engine.cosyvoice.vllm
+    assert vllm.gpu_memory_utilization == 0.35
+    assert vllm.max_model_len == 4096
+    assert vllm.max_num_seqs == 16
+    assert vllm.max_num_batched_tokens == 4096
+
+
+def test_invalid_vllm_env_fails_fast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = _write_config(tmp_path / "runtime.yaml")
+    monkeypatch.setenv("COSYVOICE_VLLM_GPU_MEMORY_UTILIZATION", "lots")
+
+    with pytest.raises(
+        ValueError, match="COSYVOICE_VLLM_GPU_MEMORY_UTILIZATION"
+    ):
+        load_config(config_path)
 
 
 def test_invalid_worker_env_fails_fast(

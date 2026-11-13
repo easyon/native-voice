@@ -129,6 +129,9 @@ autoscaling:
   maxReplicas: 20
   # CPU is a coarse signal. Add a Pods/custom metric on
   # cosyvoice_active_streams (or queue wait) for connection-heavy traffic.
+  # For one-GPU-per-pod model replicas, cosyvoice_gpu_utilization_ratio
+  # (exported by the runtime from nvidia-smi) is a useful secondary signal;
+  # see docs/ops/cosyvoice-runtime-runbook.md §4 for a Pods-metric example.
   metrics:
     - type: Resource
       resource:
@@ -266,6 +269,16 @@ runtime:
     ttlS: 86400
     serveFiles: false
     cleanupIntervalS: 3600
+
+  # Zero-shot voice cloning uploads. Needs a writable dir; enable persistence
+  # (or mount a volume at this path) when cloning is used in Kubernetes.
+  cloning:
+    enabled: true
+    dir: /app/data/voices
+    maxUploadBytes: 16777216
+    minDurationS: 1.0
+    maxDurationS: 30.0
+    promptSampleRate: 24000
 
   logging:
     level: INFO

@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .api import files, health, http, ui, ws
+from .api import files, health, http, ui, voices, ws
 from .context import bind_context
 from .logging_config import configure_logging
 from .runtime import Runtime
@@ -34,23 +34,40 @@ class _BodyTooLarge(Exception):
 
 
 class BodySizeLimitMiddleware:
-    """Reject oversized JSON bodies, including chunked requests."""
+    """Reject oversized JSON bodies, including chunked requests.
 
-    def __init__(self, app: Any, max_bytes: int) -> None:
+    ``overrides`` maps an exact request path to a different limit; the voice
+    cloning endpoint accepts multipart audio and therefore needs a larger body
+    than the JSON API.
+    """
+
+    def __init__(
+        self,
+        app: Any,
+        max_bytes: int,
+        overrides: dict[str, int] | None = None,
+    ) -> None:
         self.app = app
         self.max_bytes = max(1, int(max_bytes))
+        self.overrides = {
+            path: max(1, int(limit)) for path, limit in (overrides or {}).items()
+        }
+
+    def _limit(self, scope: dict[str, Any]) -> int:
+        return self.overrides.get(scope.get("path", ""), self.max_bytes)
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
+        limit = self._limit(scope)
         headers = dict(scope.get("headers") or [])
         content_length = headers.get(b"content-length")
         if content_length is not None:
             try:
-                if int(content_length) > self.max_bytes:
-                    await self._reject(send)
+                if int(content_length) > limit:
+                    await self._reject(send, limit)
                     return
             except ValueError:
                 pass
@@ -62,7 +79,7 @@ class BodySizeLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > self.max_bytes:
+                if received > limit:
                     raise _BodyTooLarge
             return message
 
@@ -78,16 +95,19 @@ class BodySizeLimitMiddleware:
             await self.app(scope, limited_receive, tracked_send)
         except _BodyTooLarge:
             if not started:
-                await self._reject(send)
+                await self._reject(send, limit)
             else:
                 raise
 
     @staticmethod
-    async def _reject(send: Any) -> None:
+    async def _reject(send: Any, limit: int | None = None) -> None:
+        message = "request body is too large"
+        if limit:
+            message = f"request body is too large (limit {limit} bytes)"
         body = json.dumps(
             {
                 "code": "RequestTooLarge",
-                "message": "request body is too large",
+                "message": message,
                 "retryable": False,
             }
         ).encode()
@@ -258,10 +278,14 @@ def create_app(
     app.include_router(ws.router)
     app.include_router(files.router)
     app.include_router(ui.router)
+    app.include_router(voices.router)
 
     app.add_middleware(
         BodySizeLimitMiddleware,
         max_bytes=runtime.config.server.max_request_bytes,
+        overrides={
+            "/api/v1/voices/clone": runtime.config.cloning.max_upload_bytes,
+        },
     )
     return app
 

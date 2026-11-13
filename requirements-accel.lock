@@ -2,12 +2,13 @@
 #
 #   pip install -r requirements-accel.lock     # both vLLM and TensorRT
 #
-# Prefer installing only what you enable: requirements-vllm.lock for
-# load_vllm, requirements-trt.lock for load_trt. This file exists for hosts
-# that want the full set. Both parts change versions relative to the verified
-# fp32 baseline (vLLM upgrades transformers and pins torch; TensorRT is tied to
-# the CUDA build), so enable one at a time and re-run scripts/gpu_smoke.py
-# with the corresponding flag before rollout.
+# This file resolves. For a byte-identical GPU environment use
+# requirements-gpu.lock instead: it is the full `pip list --local` closure of
+# the host where both stacks were validated, installed with --no-deps. The two
+# curated lists below are kept because they document what each accelerator
+# changes relative to the fp32 baseline (vLLM upgrades transformers and pins
+# torch; TensorRT is tied to the CUDA build), and because one can be used
+# without the other.
 #
 # Rationale: upstream CosyVoice3 runs the LLM on one shared CUDA stream and
 # the flow decoder is a large DiT. vLLM gives continuous batching for the

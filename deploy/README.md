@@ -11,7 +11,8 @@ git clone <repo> voice-train && cd voice-train
 
 bash deploy/bootstrap-gpu.sh                 # 默认 /data/... + 8000 端口，部署并启动
 bash deploy/bootstrap-gpu.sh --no-start       # 只准备环境，不启动（CI/镜像构建用）
-VENV=/opt/conda/envs/cosyvoice bash deploy/bootstrap-gpu.sh   # 复用已有 Python 3.12 + torch 2.10.0+cu128 环境，不重装 torch
+VENV=/opt/conda/envs/cosyvoice bash deploy/bootstrap-gpu.sh   # 复用已有 venv 里的 Python + torch，不重装 torch
+bash deploy/bootstrap-gpu.sh --reuse-python /opt/conda/bin/python  # 直接复用 conda/系统环境，不建 venv
 ```
 
 常用覆盖（全部是环境变量）：
@@ -37,7 +38,7 @@ bash deploy/bootstrap-gpu.sh
 - 脚本生成的是 `configs/runtime.local.gpu.yaml`，模板始终是受维护的 `configs/runtime.gpu.yaml`，不要手改生成物。
 - 模型下载单独跑也可以：`python scripts/fetch_model.py --dest /data/models/... --list-only` 先看文件清单（默认 ModelScope），去掉 `--list-only` 再下。断点续跑安全：已存在的完整文件跳过，sha256 不匹配会删掉重下。
 - 已经装好环境的机器，跳过准备工作直接起服务：`COSYVOICE_PYTHON=/data/venvs/cosyvoice/bin/python COSYVOICE_REPO=/data/CosyVoice . scripts/gpu_env.sh && /data/venvs/cosyvoice/bin/cosyvoice-runtime -c configs/runtime.gpu.yaml`。`gpu_env.sh` 会按 `COSYVOICE_PYTHON`（缺省 `python`）定位 torch 的 nvidia 库拼好 `LD_LIBRARY_PATH`（onnxruntime-gpu 不报 `libcublasLt.so.12` 的前提），并把 `COSYVOICE_REPO` 和 `third_party/Matcha-TTS` 加进 `PYTHONPATH`（否则报 `No module named 'cosyvoice'`）。
-- 完全离线/内网机器走下面的镜像路径。
+- 完全离线/内网机器可以先用 0.6 打离线包，或走下面的镜像路径。
 - 国内网络可以把 PyPI 和 torch 都换成国内源（`PIP_INDEX_URL` pip 会自动识别，torch 用 `TORCH_INDEX_URL`）：
 
   ```bash
@@ -81,7 +82,7 @@ TRT_CONCURRENT=4 bash deploy/bootstrap-gpu.sh --trt
 engine:
   cosyvoice:
     load_vllm: true       # 首次启动导出 <artifact>/vllm，需可写或预导出
-    load_trt: true        # 首次启动编译 flow.decoder.estimator.fp32.<gpu>.plan
+    load_trt: true        # 首次启动编译 flow.decoder.estimator.fp32.mygpu.plan
     trt_concurrent: 2     # TRT context 池大小
 ```
 
@@ -93,11 +94,27 @@ python scripts/gpu_smoke.py ... --vllm --concurrency 4 --tasks 16
 python scripts/gpu_smoke.py ... --trt --trt-concurrent 2 --concurrency 4 --tasks 16
 ```
 
-通过标准：`aggregate_audio_per_wall_s` 明显高于基线（fp32 c=4 约 1.47× 实时），TTFF 不退化，音频抽检无串音。已知约束：`fp16` 不要和 TRT 叠加；plan 与 GPU 架构绑定；vLLM 会把 `transformers` 升到 4.57.1，回滚时依赖环境也要一起回退。启用/回滚与故障表见 [运维手册 7.3](../docs/ops/cosyvoice-runtime-runbook.md#73-加速栈vllm--tensorrt启用与回滚)。
+通过标准：`aggregate_audio_per_wall_s` 明显高于基线（fp32 c=4 约 1.47× 实时），TTFF 不退化，音频抽检无串音。已知约束：`fp16` 不要和 TRT 叠加；plan 与 GPU 架构绑定（上游文件名固定为 `flow.decoder.estimator.fp32.mygpu.plan`，换卡后从文件名看不出差异，必须删掉重编）；vLLM 会把 `transformers` 升到 4.57.1，回滚时依赖环境也要一起回退。启用/回滚与故障表见 [运维手册 7.3](../docs/ops/cosyvoice-runtime-runbook.md#73-加速栈vllm--tensorrt启用与回滚)。
 
-## 0.3 非 Ampere 卡实测（Quadro RTX 6000 24GB，2026-11-13）
+### L40S 48GB 起手配置
 
-Turing（sm75，无 TF32/bf16）上同一 checkpoint、同一段 3.4s 文本：
+L40S 是 sm89（Ada），支持 bf16/TF32，走 0.2 的主路径（单进程 + vLLM + TensorRT）；不支持 bf16 的卡（sm75 及更老）不进入部署，原因见 0.3。
+
+```bash
+bash deploy/bootstrap-gpu.sh --vllm --trt --no-start
+# 两个开关同时开启时，生成的配置默认 max_concurrent=4、trt_concurrent=2
+```
+
+- 一张卡只跑一个进程、一份权重：vLLM 负责 LLM 连续批处理，TensorRT 多 context 并行 flow 解码。同卡多进程会复制权重、切分 SM，吞吐通常低于 batching。
+- 48GB 对这个 0.5B 栈不是瓶颈（见 0.3：整机 RSS 约 3.4GB；vLLM 的 KV cache 也很小）。并发上限由首包/RTF SLO 决定，不由显存决定。`bootstrap` 只做显存下限检查（加速栈 <16 GiB 时告警），不做自动调参。
+- 调参顺序：先固定 `trt_concurrent=2`，用 `scripts/loadtest.py` 或 `gpu_smoke.py` 跑 c=2/4/6/8，取“首包 p95 达标且聚合倍率仍在上升”的最大并发；再按 flow 是否成为瓶颈把 `trt_concurrent` 调到 2–4。
+- `gpu_smoke.py` 的并发模式会同时输出 `gpu_util_avg_pct` / `gpu_util_max_pct`（nvidia-smi 采样）：**利用率低但请求在排队**说明 GPU 在等串行阶段（提高 `trt_concurrent`、确认 vLLM 已生效，或检查 CPU 预处理）；**利用率接近满载而聚合倍率不再涨**说明算力到顶，再加并发只会抬高首包，应加卡而不是加线程。
+- 线上不用手工跑 nvidia-smi：运行时自带 `cosyvoice_gpu_utilization_ratio` 等指标（默认 5s 采样，`metrics.gpu_sampling_interval_s: 0` 可关），判读规则与上面一致；单卡副本也可以拿它做 HPA 的辅助信号（见[运维手册 4](../docs/ops/cosyvoice-runtime-runbook.md#4-容量与扩缩容)）。
+- `fp16` 仍按 0.1 的结论默认关闭，先实测；`tf32` 保持开启，Ada 上是免费收益。L40S 的 FP8 上游没有适配，不要开。
+
+## 0.3 不支持 bf16 的卡（sm75，已在选型中排除）
+
+Quadro RTX 6000 24GB（Turing，sm75，无 TF32/bf16）上的对照实测，同一 checkpoint、同一段 3.4s 文本：
 
 | 场景 | RTF | 首包 | 聚合实时倍率 | 显存 |
 |---|---|---|---|---|
@@ -105,13 +122,13 @@ Turing（sm75，无 TF32/bf16）上同一 checkpoint、同一段 3.4s 文本：
 | c=2，8 任务 | 1.69 | p50 5.7s | 1.16× | 3.4 GB |
 | c=4，16 任务 | 4.10 | p50 14.2s | 0.96× | 3.5 GB |
 
-结论：这类卡上 `max_concurrent` 保持 1。c=2 只多 16% 吞吐却让首包翻倍，c=4 已经负收益（上游共用一条 CUDA stream，见技术方案 8.5.10）。要扩吞吐应多进程/CUDA MPS 或换 Ampere+；vLLM/TensorRT 在 sm75 上是否可用需按 0.2 的验收命令实测，不要直接照搬 A100 参数。
+结论：这类卡上进程内并发已经负收益（c=2 只多 16% 吞吐却让首包翻倍，c=4 直接倒退；上游共用一条 CUDA stream，见技术方案 8.5.10），而 vLLM 路径依赖 bf16、在这类卡上不可用。**因此 sm75 及更老不进入部署**，不为其维护第二套多进程形态；扩容只能换 sm80+ 并走 0.2 的主路径。以下数据仅作为选型排除依据保留，不要照搬 A100/L40S 参数。
 
 ## 0.4 上游隐式依赖
 
 checkpoint 里的 `cosyvoice3.yaml` 在加载时会解析训练段，所以 `cosyvoice.dataset.processor`（whisper、pyworld）和 Matcha-TTS 的 `matcha.utils`（gdown、matplotlib、wget）即使只做推理也会被 import。`requirements-cosyvoice.lock` 已包含这些包；其中 `pyworld` 需要 `python3.X-dev` + `g++`，`openai-whisper` 的 sdist 需要 `setuptools<81`，`bootstrap-gpu.sh` 会自动处理（缺头文件时 apt 安装、whisper 用 `--no-build-isolation` 单独装）。手工装环境时按 [lock 文件里的注释](../requirements-cosyvoice.lock) 操作。
 
-## 0.3 浏览器测试页（/ui）
+## 0.5 浏览器测试页（/ui）
 
 服务自带一个单文件测试台，部署后直接打开：
 
@@ -132,6 +149,100 @@ http://<host>:8000/ui
 server:
   ui_enabled: false
 ```
+
+### 0.3.1 声音克隆
+
+在测试台展开“声音克隆”，上传一段参考音频或直接用麦克风录制，填写这段音频的文字（必须与录音内容一致），即可创建一个 zero-shot 克隆音色。创建后它会出现在 voice 下拉框里，和 `configs/runtime.gpu.yaml` 里配置的音色一样使用。
+
+- 参考音频 1–30 秒、≤16MB，支持 wav/mp3/m4a/aac/ogg/opus/webm/flac；非 WAV 需要 ffmpeg。
+- 文字会作为 `prompt_text` 写入，服务端自动补 `<|endofprompt|>` 标记。
+- 录音需要浏览器处于 `localhost` 或 HTTPS 环境；纯 HTTP 域名下只能用上传。
+- 克隆音色保存在 `cloning.dir`，默认 `./data/voices`，GPU 模板是 `/data/voices`。每个音色一个目录（`prompt.wav` + `meta.json`），服务启动时自动加载。
+- 关闭克隆：`cloning.enabled: false`；也可以用 `COSYVOICE_CLONING_DIR` 改存储目录。
+
+接口（同样使用 `Authorization: Bearer`）：
+
+```text
+GET    /api/v1/voices                 列出配置音色和克隆音色
+POST   /api/v1/voices/clone           multipart: audio, transcript, name, source
+DELETE /api/v1/voices/{voice_id}      只允许删除克隆音色
+```
+
+新建的克隆音色在本次进程内走每请求提取 prompt 特征（比启动时缓存的音色多约 0.4s 首包）；重启后会和其他 zero-shot 音色一起缓存。
+
+## 0.6 离线包与复用已有环境
+
+前面几节默认部署机可以访问 PyPI 和模型镜像。内网或新机器可以先把模型、上游代码和 wheel 打成离线包，再整目录拷过去；目标机如果已经装好兼容的 CUDA/PyTorch，也可以直接复用，不新建 venv、不重装 torch。
+
+### 打包（有网机器，Linux x86_64）
+
+```bash
+# 完整包：模型 + CosyVoice + 全部 wheel + 本仓库副本
+bash deploy/prepare-bundle.sh --dest /data/bundles/cosyvoice-20261113
+
+# 需要 vLLM / TensorRT 时把对应 wheel 也带上（TRT 还会自动补 flow ONNX）
+bash deploy/prepare-bundle.sh --dest /data/bundles/cosyvoice-20261113 --with-vllm --with-trt
+
+# 等价于上面的完整包（含加速栈），一条命令拉齐全部依赖
+bash deploy/prepare-bundle.sh --dest /data/bundles/cosyvoice-20261113 --all
+
+# 复用已经跑过的模型目录（含已生成的 TensorRT plan、vLLM 导出），避免重复下载和首次编译
+bash deploy/prepare-bundle.sh --dest /data/bundles/cosyvoice-20261113 --all \
+  --model-dir /data/models/Fun-CosyVoice3-0.5B
+
+# 只搬资产（模型 + 上游代码），依赖由目标机自己联网装
+bash deploy/prepare-bundle.sh --dest /data/bundles/cosyvoice-20261113 --no-wheels
+
+# 可选：生成压缩包（模型大，gzip 较慢；直接 rsync 目录通常更快）
+bash deploy/prepare-bundle.sh --dest /data/bundles/cosyvoice-20261113 --tar
+```
+
+包结构：`model/`（checkpoint）、`CosyVoice/`（上游固定在 `requirements-cosyvoice.lock` 记录的 commit，含 Matcha-TTS 子模块）、`wheels/`（目标 Python 的全部发行包）、`repo/`（本仓库副本，目标机不需要 git clone）、`manifest.env`（版本/commit/平台，供 bootstrap 校验）。
+
+批量行为：模型由 `fetch_model.py` 一次拉取全部文件并做并行分片（8 连接），wheel 由四个 lock 文件一次性解析出完整传递依赖，上游仓库连同子模块一次浅克隆；重复执行会跳过已完成的文件和目录，中断后直接重跑即可续传。
+
+约束：
+
+- wheel 与 **Python 小版本**绑定（cp312 的包不能装进 3.11）：打包机与目标机的 Python 小版本必须一致，`bootstrap --bundle` 会在不一致时直接拒绝。跨架构（x86_64 → aarch64）需要在目标架构上重新打包。
+- `openai-whisper` / `pyworld` / `antlr4-python3-runtime` 只有 sdist，打包机会在临时 venv 里预先编译成 wheel；成功后目标机不需要 g++ 和 Python 头文件，`bootstrap` 会自动跳过 apt 安装。只有打包机缺少编译工具、回退保留 sdist 时，目标机才需要现场编译。
+- TensorRT plan 与 GPU 架构（以及 TensorRT 版本）绑定，首次启动在目标卡上编译；vLLM 的 `<model>/vllm` 导出目录也由首次启动写入，模型目录必须可写（或预生成后只读挂载）。同型号 GPU 批量部署时，用 `--model-dir` 把已经生成 plan 和 vLLM 导出的模型目录直接打进包，后续机器首次启动即可跳过编译和转换。
+- 模型文件由 `fetch_model.py` 按上游 sha256 校验；需要整包校验时加 `--checksum`（会遍历所有文件，耗时几分钟）。
+
+### 目标机部署（离线）
+
+```bash
+tar -xzf cosyvoice-20261113.tar.gz -C /data/bundles   # 或 rsync -a
+tar --zstd -xf cosyvoice-20261113.tar.zst -C /data/bundles  # --tar 且打包机有 zstd 时
+bash /data/bundles/cosyvoice-20261113/repo/deploy/bootstrap-gpu.sh \
+  --bundle /data/bundles/cosyvoice-20261113 --no-start
+```
+
+`--bundle` 会把 `MODEL_DIR` / `COSYVOICE_REPO` 指向包内路径，并设置 `PIP_NO_INDEX=1` + `--find-links wheels`：任何一步需要联网都会失败，而不是静默下载。确实要联网时加 `--allow-network`。
+
+### 部署提速清单
+
+| 手段 | 省掉的开销 |
+|---|---|
+| 离线包 + `--reuse-python` | 不下载模型/wheel，不建 venv、不重装 torch |
+| 打包时预编译 sdist | 目标机不装 g++/Python 头文件，跳过现场编译 |
+| `--model-dir` 复用热目录 | 不重复下载模型；TensorRT plan、vLLM 导出随包带走，首次启动不再编译/转换 |
+| `--tar`（zstd 多线程） | 归档比 gzip 快数倍；数据量大时直接 `rsync -a` 目录通常更快 |
+| 幂等重跑 | 模型按文件跳过、已装依赖 pip 直接满足，失败后重跑只补缺的部分 |
+| `--skip-smoke` | 跳过模型冒烟，仅限已验收过的同构机器；首次上线不要跳过 |
+
+### 复用目标机已有的 Python/PyTorch
+
+```bash
+# 机器上已有 conda/系统环境，torch 2.10.0+cu128 可用
+bash deploy/bootstrap-gpu.sh --reuse-python /opt/conda/bin/python \
+  --bundle /data/bundles/cosyvoice-20261113 --no-start
+```
+
+- 不创建 venv、不安装或替换 torch；只校验 `torch.cuda.is_available()` 与 CUDA 12.x，然后把运行时和缺失的引擎依赖装进该环境。
+- 完全预装好的镜像（依赖已齐全）加 `--no-install`：只做 import 校验，不执行 pip，适合无网、无编译工具的生产镜像。
+- 想避免污染共享环境，优先指向**现有 venv** 的 `bin/python`；直接指向系统 Python 时，安装会落在系统环境里。
+- 与 `--bundle` 组合时，wheel 的 Python 小版本不一致会直接报错；`--no-install` 不做该检查。
+- `--skip-smoke` 可跳过模型冒烟（没有 GPU 的准备阶段或纯配置校验）；正式上线不要跳过。
 
 ## 1. 构建镜像
 
@@ -216,6 +327,8 @@ python scripts/loadtest.py --mode http --concurrency 100 --tasks 5000 --api-key 
 ```
 
 再对真实模型服务重复同样的阶梯，并记录 TTFF、RTF、错误率、GPU 显存、队列等待。`scripts/loadtest.py` 只验证接入层，不代表真实模型吞吐。
+
+报告里的 `aggregate_rtf`（合成音频秒数 / 墙钟秒数）是跨配置比较吞吐的指标；`audio_bytes` 已按 base64 解码后的原始字节统计。验证多副本或网关分流时用 `--base-urls` 把并发轮流打到各个后端（逗号分隔），再对统一入口跑一遍对比分布。
 
 建议阶梯：1 → 10 → 25 → 50 → 100 → 200（连接/流），每次至少 5 分钟，观察 p95/p99、`cosyvoice_queue_wait_seconds`、`cosyvoice_active_streams`、`cosyvoice_rtf`。1000 并发先做 1000 连接的空载/短文本 soak，再按容量模型拆分为多个模型服务副本。
 

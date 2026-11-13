@@ -31,7 +31,9 @@ import inspect
 import json
 import os
 import statistics
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -67,6 +69,14 @@ def parse_args() -> argparse.Namespace:
         "same flag as engine.cosyvoice.load_trt",
     )
     parser.add_argument("--trt-concurrent", type=int, default=1)
+    # Upstream load_vllm hardcodes gpu_memory_utilization=0.2, which cannot
+    # start on a 32GB card once the TTS modules are resident. None means "use
+    # the runtime's VllmEngineConfig defaults", so a smoke result reflects the
+    # service configuration.
+    parser.add_argument("--vllm-gpu-util", type=float, default=None)
+    parser.add_argument("--vllm-max-model-len", type=int, default=None)
+    parser.add_argument("--vllm-max-num-seqs", type=int, default=None)
+    parser.add_argument("--vllm-max-num-batched-tokens", type=int, default=None)
     parser.add_argument(
         "--concurrency",
         type=int,
@@ -91,6 +101,67 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _gpu_util_sample() -> tuple[float, float] | None:
+    """Return (SM utilization %, memory used MiB) from nvidia-smi."""
+    try:
+        out = subprocess.run(
+            [
+                "nvidia-smi", "-i", "0",
+                "--query-gpu=utilization.gpu,memory.used",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = out.stdout.strip().splitlines()
+    if not lines:
+        return None
+    parts = [part.strip() for part in lines[0].split(",")]
+    if len(parts) < 2:
+        return None
+    try:
+        return float(parts[0]), float(parts[1])
+    except ValueError:
+        return None
+
+
+class _GpuSampler:
+    """Sample utilization while the load runs.
+
+    A low average with requests queued means the GPU is idle because work is
+    serialized (shared stream, too few TRT contexts); a high average with
+    flat throughput means it is compute-bound and more concurrency only adds
+    latency.
+    """
+
+    def __init__(self, interval: float = 0.5) -> None:
+        self.interval = interval
+        self.util: list[float] = []
+        self.mem_mib: list[float] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            sample = _gpu_util_sample()
+            if sample is not None:
+                self.util.append(sample[0])
+                self.mem_mib.append(sample[1])
+            self._stop.wait(self.interval)
+
+    def __enter__(self) -> _GpuSampler:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2)
+
+
 def main() -> int:
     args = parse_args()
     repo = os.environ.get("COSYVOICE_REPO", "")
@@ -100,20 +171,56 @@ def main() -> int:
 
     import numpy as np
     import torch
-    from cosyvoice.cli.cosyvoice import CosyVoice3
 
     try:
         from cosyvoice_runtime.engines.cosyvoice_compat import (
+            install_modelscope_stub,
+            install_vllm_engine_overrides,
             install_wav_loader,
             install_wetext_assets,
         )
 
+        install_modelscope_stub()
         install_wav_loader()
         install_wetext_assets()
+        if args.vllm:
+            from cosyvoice_runtime.settings import VllmEngineConfig
+
+            sizing = VllmEngineConfig().overrides()
+            for key, value in (
+                ("gpu_memory_utilization", args.vllm_gpu_util),
+                ("max_model_len", args.vllm_max_model_len),
+                ("max_num_seqs", args.vllm_max_num_seqs),
+                ("max_num_batched_tokens", args.vllm_max_num_batched_tokens),
+            ):
+                if value is not None:
+                    sizing[key] = value
+            if not install_vllm_engine_overrides(sizing):
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": "--vllm needs vllm installed and the engine "
+                            "sizing defaults; install requirements-accel.lock",
+                        }
+                    )
+                )
+                return 2
     except ImportError:
         # Running the upstream checkout without the runtime installed: the
         # script still works when torchaudio.TorchCodec is available.
-        pass
+        if args.vllm:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "--vllm needs cosyvoice_runtime for engine sizing",
+                    }
+                )
+            )
+            return 2
+
+    from cosyvoice.cli.cosyvoice import CosyVoice3
 
     if not torch.cuda.is_available():
         print(json.dumps({"ok": False, "error": "CUDA is not available"}))
@@ -235,10 +342,11 @@ def main() -> int:
     else:
         torch.cuda.reset_peak_memory_stats()
         wall_start = time.perf_counter()
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=concurrency
-        ) as pool:
-            results = list(pool.map(lambda _: one(), range(tasks)))
+        with _GpuSampler() as sampler:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=concurrency
+            ) as pool:
+                results = list(pool.map(lambda _: one(), range(tasks)))
         wall_s = time.perf_counter() - wall_start
         peak_mb = round(torch.cuda.max_memory_allocated() / 2**20, 1)
         errors = [r["error"] for r in results if "error" in r]
@@ -264,6 +372,10 @@ def main() -> int:
             "rtf_mean": round(statistics.fmean(rtfs), 4) if rtfs else None,
             "peak_gpu_mb": peak_mb,
         }
+        if sampler.util:
+            summary["gpu_util_avg_pct"] = round(statistics.fmean(sampler.util), 1)
+            summary["gpu_util_max_pct"] = round(max(sampler.util), 1)
+            summary["gpu_mem_used_max_mb"] = round(max(sampler.mem_mib), 1)
         print(
             json.dumps(
                 {

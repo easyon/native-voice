@@ -15,6 +15,8 @@ dependencies = [
   "uvicorn[standard]>=0.30,<1",
   "pydantic>=2.8,<3",
   "PyYAML>=6.0,<7",
+  # Multipart parsing for the voice-cloning upload endpoint.
+  "python-multipart>=0.0.9,<1",
   # Used by the PCM gain path and the CosyVoice worker. Keeping it in the
   # base runtime avoids a slow Python-loop fallback under load.
   "numpy>=1.26",

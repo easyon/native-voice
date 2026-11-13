@@ -10,6 +10,15 @@ Examples:
   python scripts/loadtest.py --mode sse --concurrency 100 --tasks 500
   python scripts/loadtest.py --mode http --concurrency 100 --tasks 500 \
       --base-url http://127.0.0.1:8000 --api-key test-key
+
+  # Worker pool: hit each worker directly (round-robin across concurrent
+  # clients), then compare with the nginx endpoint.
+  python scripts/loadtest.py --mode sse --concurrency 4 --tasks 40 \
+      --base-urls http://127.0.0.1:18000,http://127.0.0.1:18001
+
+The report includes `aggregate_rtf`: synthesized audio seconds per wall
+second. Compare it across pool sizes — that, not request count, is the
+throughput number that matters.
 """
 from __future__ import annotations
 
@@ -29,13 +38,19 @@ import websockets
 
 HTTP_PATH = "/api/v1/services/audio/tts/SpeechSynthesizer"
 WS_PATH = "/api-ws/v1/inference"
+SAMPLE_RATE = 24_000
+BYTES_PER_SAMPLE = 2  # pcm_s16le, mono
 
 
 @dataclass
 class Sample:
     ttff_ms: float
     total_ms: float
+    # Raw (decoded) audio bytes. JSON payloads carry base64, WS binary frames
+    # are raw; both are normalised here so throughput is comparable.
     audio_bytes: int = 0
+    audio_s: float = 0.0
+    url: str = ""
     error: str | None = None
 
 
@@ -45,6 +60,24 @@ class Results:
 
     def add(self, sample: Sample) -> None:
         self.samples.append(sample)
+
+
+def _b64_bytes(data: str) -> int:
+    """Decoded size of a base64 string without decoding it."""
+    if not data:
+        return 0
+    padding = data[-2:].count("=")
+    return max(0, len(data) * 3 // 4 - padding)
+
+
+def _audio_seconds(fmt: str, raw_bytes: int, sample_rate: int = SAMPLE_RATE) -> float:
+    """Approximate duration of raw PCM/WAV audio (16-bit mono)."""
+    if fmt == "pcm":
+        return raw_bytes / (sample_rate * BYTES_PER_SAMPLE)
+    if fmt == "wav":
+        # 44-byte canonical header; the runtime writes a plain PCM wav.
+        return max(0, raw_bytes - 44) / (sample_rate * BYTES_PER_SAMPLE)
+    return 0.0
 
 
 def _pct(values: list[float], p: float) -> float:
@@ -128,8 +161,13 @@ async def one_http(
             return Sample(elapsed, elapsed, error=f"HTTP {response.status_code}")
         body = response.json()
         audio = body.get("output", {}).get("audio", {})
-        audio_bytes = len(audio.get("data") or "")
-        return Sample(elapsed, elapsed, audio_bytes=audio_bytes)
+        raw = _b64_bytes(audio.get("data") or "")
+        return Sample(
+            elapsed,
+            elapsed,
+            audio_bytes=raw,
+            audio_s=_audio_seconds(fmt, raw),
+        )
     except Exception as exc:  # noqa: BLE001 - load generator must keep going
         elapsed = (time.perf_counter() - started) * 1000
         return Sample(elapsed, elapsed, error=f"{type(exc).__name__}: {exc}")
@@ -170,10 +208,15 @@ async def one_sse(
                 if output.get("type") == "sentence-synthesis" and audio.get("data"):
                     if first is None:
                         first = time.perf_counter()
-                    audio_bytes += len(audio["data"])
+                    audio_bytes += _b64_bytes(audio["data"])
         elapsed = (time.perf_counter() - started) * 1000
         ttff = (first - started) * 1000 if first is not None else elapsed
-        return Sample(ttff, elapsed, audio_bytes=audio_bytes)
+        return Sample(
+            ttff,
+            elapsed,
+            audio_bytes=audio_bytes,
+            audio_s=_audio_seconds(fmt, audio_bytes),
+        )
     except Exception as exc:  # noqa: BLE001
         elapsed = (time.perf_counter() - started) * 1000
         return Sample(elapsed, elapsed, error=f"{type(exc).__name__}: {exc}")
@@ -218,7 +261,7 @@ async def _ws_task(
             if audio.get("data"):
                 if first is None:
                     first = time.perf_counter()
-                audio_bytes += len(audio["data"])
+                audio_bytes += _b64_bytes(audio["data"])
             continue
         if name == "task-failed":
             elapsed = (time.perf_counter() - started) * 1000
@@ -226,7 +269,12 @@ async def _ws_task(
         if name == "task-finished":
             elapsed = (time.perf_counter() - started) * 1000
             ttff = (first - started) * 1000 if first is not None else elapsed
-            return Sample(ttff, elapsed, audio_bytes=audio_bytes)
+            return Sample(
+                ttff,
+                elapsed,
+                audio_bytes=audio_bytes,
+                audio_s=_audio_seconds(fmt, audio_bytes),
+            )
 
 
 async def one_ws_connection(
@@ -277,15 +325,18 @@ async def run(args: argparse.Namespace) -> Results:
     )
     timeout = httpx.Timeout(args.timeout_s)
     client = httpx.AsyncClient(timeout=timeout, limits=limits)
-    ws_url = _target_ws_url(args.base_url)
+    urls: list[str] = args.urls
 
     async def worker(index: int) -> None:
         if args.ramp_s:
             await asyncio.sleep(args.ramp_s * index / max(1, args.concurrency))
+        # Round-robin over the supplied endpoints. For a process pool this maps
+        # concurrent clients onto workers without needing shared state.
+        url = urls[index % len(urls)]
         per_worker = max(1, args.tasks // args.concurrency)
         if args.mode == "ws":
             samples = await one_ws_connection(
-                ws_url,
+                _target_ws_url(url),
                 args.api_key,
                 args.model,
                 args.voice,
@@ -296,11 +347,10 @@ async def run(args: argparse.Namespace) -> Results:
         else:
             samples = []
             for _ in range(per_worker):
-                started = time.perf_counter()
                 if args.mode == "sse":
                     sample = await one_sse(
                         client,
-                        args.base_url,
+                        url,
                         args.api_key,
                         args.model,
                         args.voice,
@@ -310,7 +360,7 @@ async def run(args: argparse.Namespace) -> Results:
                 else:
                     sample = await one_http(
                         client,
-                        args.base_url,
+                        url,
                         args.api_key,
                         args.model,
                         args.voice,
@@ -318,9 +368,8 @@ async def run(args: argparse.Namespace) -> Results:
                         args.format,
                     )
                 samples.append(sample)
-                # Keep a per-worker pacing gap to avoid a tight accidental loop.
-                del started
         for sample in samples:
+            sample.url = url
             results.add(sample)
 
     try:
@@ -330,7 +379,7 @@ async def run(args: argparse.Namespace) -> Results:
     return results
 
 
-def report(results: Results, elapsed_s: float) -> int:
+def report(results: Results, elapsed_s: float, urls: list[str] | None = None) -> int:
     ok = [s for s in results.samples if s.error is None]
     failed = [s for s in results.samples if s.error is not None]
     print(f"requests: {len(results.samples)}  ok: {len(ok)}  failed: {len(failed)}")
@@ -354,6 +403,26 @@ def report(results: Results, elapsed_s: float) -> int:
             f"mean={statistics.fmean(audio):.0f} "
             f"p50={_pct(audio, 50):.0f} p95={_pct(audio, 95):.0f}"
         )
+        # Aggregate real-time factor: synthesized audio seconds per wall
+        # second. This is the number that should grow with pool size.
+        audio_s = sum(s.audio_s for s in ok)
+        print(
+            f"audio: {audio_s:.2f}s synthesized  "
+            f"aggregate_rtf={audio_s / max(elapsed_s, 1e-9):.2f}x"
+        )
+    if ok and urls and len(urls) > 1:
+        print("per-url:")
+        print(f"  {'url':<28} {'ok':>5} {'ttff_p50':>9} {'audio_s':>8}")
+        for url in urls:
+            subset = [s for s in ok if s.url == url]
+            if not subset:
+                continue
+            subset_ttff = [s.ttff_ms for s in subset]
+            subset_audio = sum(s.audio_s for s in subset)
+            print(
+                f"  {url:<28} {len(subset):>5} {_pct(subset_ttff, 50):>9.1f} "
+                f"{subset_audio:>8.2f}"
+            )
     if failed:
         counts: dict[str, int] = {}
         for sample in failed:
@@ -368,6 +437,15 @@ def report(results: Results, elapsed_s: float) -> int:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument(
+        "--base-urls",
+        default=None,
+        help=(
+            "comma-separated endpoints, assigned round-robin to concurrent "
+            "workers; for a process pool pass each worker and the public "
+            "endpoint to compare them"
+        ),
+    )
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--mode", choices=("ws", "sse", "http"), default="ws")
     parser.add_argument("--concurrency", type=int, default=10)
@@ -384,6 +462,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.concurrency < 1 or args.tasks < 1:
         parser.error("concurrency and tasks must be >= 1")
+    raw_urls = args.base_urls if args.base_urls else args.base_url
+    urls = [url.strip().rstrip("/") for url in raw_urls.split(",") if url.strip()]
+    if not urls:
+        parser.error("--base-url / --base-urls produced no endpoint")
+    args.urls = urls
     return args
 
 
@@ -391,7 +474,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     started = time.perf_counter()
     results = asyncio.run(run(args))
-    return report(results, time.perf_counter() - started)
+    return report(results, time.perf_counter() - started, args.urls)
 
 
 if __name__ == "__main__":

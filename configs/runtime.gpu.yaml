@@ -30,6 +30,13 @@ auth:
   tenants: []
   metrics_public: true
 
+metrics:
+  # Publish cosyvoice_gpu_* gauges by sampling nvidia-smi; they are what the
+  # dashboards and the replica HPA use to tell "compute-bound" from "blocked
+  # on a serial stage". 0 disables the sampler (and its subprocess).
+  gpu_sampling_interval_s: 5
+  gpu_device: 0
+
 engine:
   type: cosyvoice
   cosyvoice:
@@ -48,6 +55,18 @@ engine:
     # llm_context stream. It requires vllm (pinned in requirements-accel.lock)
     # and a writable artifact directory.
     load_vllm: false
+    # vLLM sizing, only read when load_vllm is true. Upstream hardcodes
+    # gpu_memory_utilization=0.2; with the flow, HiFi-GAN and tokenizer models
+    # already resident on the card, that budget cannot cover the LLM weights
+    # plus vLLM's activation peak and the engine aborts during KV-cache init
+    # (measured on a 32GB RTX 5090: 0.1GiB available, 0.38GiB needed for the
+    # model's 32768-token context). These are the values validated there:
+    # KV cache 11GiB, 23GiB resident with everything loaded.
+    vllm:
+      gpu_memory_utilization: 0.5
+      max_model_len: 8192
+      max_num_seqs: 32
+      max_num_batched_tokens: 8192
     # TensorRT for the flow (DiT) decoder estimator. Requires the
     # flow.decoder.estimator.fp32.onnx file (fetch_model.py --include it) and
     # builds a per-GPU .plan on first start. trt_concurrent > 1 allows
@@ -64,9 +83,10 @@ engine:
     cache_prompt_features: true
     # One GPU runs one synthesis step at a time because upstream shares one
     # CUDA stream (llm_context) across threads. Measured on A100 at 8s text:
-    # c=1 1.17x aggregate, c=2 1.56x, c=4 1.47x, c=8 queue timeouts. Keep 2;
-    # to scale further run one process per GPU (or per MIG slice / MPS client)
-    # rather than raising this.
+    # c=1 1.17x aggregate, c=2 1.56x, c=4 1.47x, c=8 queue timeouts. Without
+    # accelerators keep 2. With load_vllm + load_trt the LLM decode is batched
+    # and several TRT flow contexts run, so bootstrap-gpu.sh defaults to 4;
+    # treat either value as an admission cap and tune it with loadtest.py.
     max_concurrent: 2
     sample_rate: 24000
     queue_size: 64
@@ -108,6 +128,17 @@ limits:
   ws_cancel_timeout_s: 5
   max_stream_audio_bytes: 67108864
   ssml_strict: true
+
+# Zero-shot voice cloning from an uploaded or recorded reference clip. The
+# directory must be writable; each voice is one subdirectory.
+cloning:
+  enabled: true
+  dir: /data/voices
+  max_upload_bytes: 16777216
+  min_duration_s: 1.0
+  max_duration_s: 30.0
+  prompt_sample_rate: 24000
+  max_transcript_chars: 2000
 
 storage:
   type: none

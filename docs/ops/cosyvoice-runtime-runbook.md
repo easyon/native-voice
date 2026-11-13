@@ -26,6 +26,13 @@
 | `cosyvoice_rtf` | 实时率 | 持续 > 0.7 时并发余量不足 |
 | `cosyvoice_errors_total` | 按错误码 | `Throttling` 高是容量/配额问题；`InternalError` 高看日志 |
 | `cosyvoice_ws_connections` | WS 连接数 | 接近 `max_ws_connections` 告警 |
+| `cosyvoice_gpu_utilization_ratio` | GPU SM 利用率（0–1，nvidia-smi 采样） | 持续 > 0.85 说明单卡算力到顶：加副本或降并发，不要继续加线程 |
+| `cosyvoice_gpu_memory_utilization_ratio` | 显存占用率（used/total，0–1） | 接近 1 且出现 OOM 时降 `max_concurrent` 或 `trt_concurrent` |
+| `cosyvoice_gpu_memory_used_bytes` | 显存已用字节（设备级） | 用于容量记录与缓慢增长排查 |
+
+GPU 三项由运行时内的采样线程每 5s 跑一次 `nvidia-smi` 发布，默认开启（`metrics.gpu_sampling_interval_s: 5`、
+`metrics.gpu_device: 0`）；设为 `0` 可完全关闭。没有驱动/nvidia-smi 时这些序列不存在，不影响其它指标。
+它们是**整卡**数值：部署模型是一个运行时进程独占一张卡，因此可直接作为副本级信号；同卡多进程不在架构内，不要据此做池化调优。
 
 初始 SLO 建议（需压测确认）：首音频 p95 ≤ 500 ms、错误率 < 0.5%、RTF p95 < 0.7、无未处理 5xx。
 
@@ -44,6 +51,25 @@
 - 真实模型服务按 RTF、显存、首块延迟扩容。
 - `limits.max_concurrent_streams` 必须小于压测得到的安全并发；否则队列等待会转化为超时。
 - 单 Pod 只运行一个 uvicorn worker；多副本通过 Service/Ingress 负载均衡。
+- 单卡 Pod 可把 `cosyvoice_gpu_utilization_ratio` 接进 HPA 作为辅助信号（目标 0.8，见下方示例）；
+  主信号仍是 `cosyvoice_active_streams` 与 `cosyvoice_queue_wait_seconds`——GPU 利用率要等请求真正跑起来才升高，
+  而排队延迟在它之前就恶化了。只按利用率扩容会让首包 SLO 在扩容前先破一次。
+
+```yaml
+# values.yaml：需要一个 Prometheus adapter 规则把该指标映射为 Pods 指标
+autoscaling:
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: cosyvoice_gpu_utilization_ratio
+        target:
+          type: AverageValue
+          averageValue: "800m"      # 0.8；与 max_concurrent 一起压测后再定
+```
+
+让 HPA 生效的前提：每个副本声明 `nvidia.com/gpu: 1` 且独占一张卡（否则整卡利用率会混入其它 Pod 的负载），
+并且 `minReplicas` ≥ 2，避免单副本抖动时被缩到 0。
 
 ## 5. 故障处理
 
@@ -130,7 +156,7 @@ cosyvoice-runtime -c configs/runtime.gpu.yaml
 python /path/to/api_smoke.py http://127.0.0.1:8000 cosyvoice3-0.5b assistant
 
 # 3b) 浏览器验收：打开 http://<host>:8000/ui，选择三种模式各合成一次。
-#     页面会显示 TTFF/总耗时/事件日志；开启鉴权时 WS 模式不可用（见 deploy/README 0.3）。
+#     页面会显示 TTFF/总耗时/事件日志；开启鉴权时 WS 模式不可用（见 deploy/README 0.5）。
 
 # 4) 阶梯并发：TTFF / RTF / 显存
 #    先按 max_concurrent 的 1/2/4 打；超过 max_concurrent 只会排队并超时，
@@ -212,6 +238,12 @@ bash deploy/bootstrap-gpu.sh --no-start --trt       # 安装 TensorRT 并下载 
 bash deploy/bootstrap-gpu.sh --no-start --vllm --trt
 ```
 
+内网机器或已有兼容 CUDA/PyTorch 的环境，可加 `--bundle`（`deploy/prepare-bundle.sh` 生成的离线包）和/或
+`--reuse-python /path/to/python`，不新建 venv、不下载 wheel；完全预装好的镜像加 `--no-install` 只做校验。
+同型号 GPU 批量部署时，用 `prepare-bundle.sh --model-dir <已跑过的模型目录>` 把已生成的 TensorRT plan 和
+vLLM 导出直接打进包，新机器首次启动可跳过编译和转换（plan 与 GPU 型号、TensorRT 版本绑定）。
+见 [deploy/README 0.6](../../deploy/README.md#06-离线包与复用已有环境)。
+
 手工等价步骤：
 
 ```bash
@@ -239,7 +271,7 @@ engine:
 | 开关 | 产物 | 要求 |
 |---|---|---|
 | `load_vllm` | `<artifact>/vllm`（LLM 导出；导出后进程内 HF LLM 层被卸载） | 目录可写，或预导出后只读挂载 |
-| `load_trt` | `<artifact>/flow.decoder.estimator.fp32.<gpu>.plan` | 目录可写，或预编译 plan；plan 与 GPU 架构/MIG slice 绑定 |
+| `load_trt` | `<artifact>/flow.decoder.estimator.fp32.mygpu.plan` | 目录可写，或预编译 plan；plan 与 GPU 架构/MIG slice 绑定（文件名固定为 `mygpu`，换卡后**无法从名字**判断是否过期，必须删掉重编或看加载报错） |
 
 验收（开关前后各跑一遍，同 GPU、同音色、同文本）：
 

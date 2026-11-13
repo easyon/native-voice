@@ -22,8 +22,30 @@ vllm==0.19.1
 # 4.57.1. This intentionally supersedes transformers==4.51.3 from
 # requirements-cosyvoice.lock; the non-vLLM deployment keeps 4.51.3.
 transformers==4.57.1
-numpy==1.26.4          # keep the upstream pin; scipy needs <1.28
+tokenizers==0.22.2          # transformers 4.57.1 pair; 0.21.x breaks import vllm
+huggingface-hub==0.36.2     # transformers requires >=0.34,<1; 0.30 has no hf_xet
+protobuf==6.33.5            # gencode/runtime match; vllm excludes 6.30-6.33.4
+numpy==1.26.4               # keep the upstream pin; scipy needs <1.28
+opencv-python-headless==4.10.0.84
+# ^ vllm declares opencv-python-headless>=4.13, whose wheel requires numpy>=2.
+#   4.10.0.84 is the newest release that runs on numpy 1.26.4, so a resolving
+#   install of this file fails. Either install with --no-deps (the rest of the
+#   closure is already satisfied by requirements-runtime/-cosyvoice) or use
+#   requirements-gpu.lock, which pins the whole validated venv.
+numba==0.61.2               # last release accepting numpy 1.26.4; librosa needs it
 
+# Verified on an RTX 5090 (sm_120, driver 580.142): vllm 0.19.1 import, V1
+# engine, FLASH_ATTN, continuous batching at c=4, TTFF 1.54s mean and RTF 0.48
+# against 8.5s / 2.8 without it. Import needs transformers>=4.56 (otherwise
+# `ImportError: ALLOWED_ATTENTION_LAYER_TYPES` from transformers' config) and a
+# protobuf whose gencode matches vllm's generated stubs.
+#
+# Engine sizing: upstream load_vllm hardcodes gpu_memory_utilization=0.2, which
+# could not fit the 32768-token KV cache on a 32GB card (0.38GiB needed,
+# 0.1GiB available). cosyvoice_runtime.engines.cosyvoice_compat
+# .install_vllm_engine_overrides() rewrites EngineArgs; the values come from
+# engine.cosyvoice.vllm in the YAML or COSYVOICE_VLLM_* env vars.
+#
 # Known failure modes:
 #   * vLLM wheels bundle their own CUDA kernels. If the wheel targets a newer
 #     CUDA minor than the driver supports, `import vllm` fails with a CUDA

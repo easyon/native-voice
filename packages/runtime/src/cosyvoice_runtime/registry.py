@@ -27,6 +27,15 @@ class Registry:
         with self._lock:
             self._config = config
 
+    def add_voice(self, voice_id: str, voice: VoiceConfig) -> None:
+        """Register a runtime-created voice (e.g. a cloned prompt)."""
+        with self._lock:
+            self._config.voices[voice_id] = voice
+
+    def remove_voice(self, voice_id: str) -> None:
+        with self._lock:
+            self._config.voices.pop(voice_id, None)
+
     def get_model(self, name: str) -> ModelConfig:
         with self._lock:
             model = self._config.models.get(name)

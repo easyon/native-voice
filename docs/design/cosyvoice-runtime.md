@@ -971,7 +971,7 @@ Global Router / GSLB
 - **单卡有效吞吐约 1.5× 实时**，不是按 RTF 0.1 推算的 6–11 路。线程并发只能把 CPU 侧空隙填满，不能增加 GPU 并行度。
 - 原因是上游 `CosyVoice3Model` 的 `tts()` 全部进入同一个 `self.llm_context` CUDA stream（`cosyvoice/cli/model.py`），多线程的 kernel 在该 stream 上串行；增加线程只会让首包线性变差。
 - 按此实测，100 路活跃约需 **60–70 张 A100**（或 ~130 张 L20），成本不可接受。要回到 8.5.2 的估算，必须先做**批处理**：LLM 侧 vLLM 连续 batching、Flow/DiT 侧 TensorRT 或 Triton 动态 batch，而不是继续加线程。
-- 在批处理落地前，生产参数取 `max_concurrent=2`（首包 3.7s 已是通话可接受上限），并用多进程/多卡横向扩，不要用单进程高并发。
+- 在批处理落地前，生产参数取 `max_concurrent=2`（首包 3.7s 已是通话可接受上限），并靠多卡/多副本横向扩，不要用单进程高并发。
 
 TF32 / fp16 实测：
 
@@ -987,7 +987,7 @@ TF32 / fp16 实测：
 
 8.5.9 的结论是“单进程线程并发无法提高 GPU 并行度”。在本仓库后续验证中又确认了两点：
 
-- **多进程 + CUDA MPS 可行但只是横向扩容**：4 个进程 + MPS 实测约 1.09 req/s，接近线性，说明 GPU 本身还有余量，浪费发生在单进程内部；代价是每卡 N 份显存和 N 份进程管理，单位请求成本不降。
+- **多进程 + CUDA MPS 只是横向扩容，且已从仓库移除**：4 个进程 + MPS 实测约 1.09 req/s，接近线性，说明 GPU 本身还有余量，浪费发生在单进程内部；代价是每卡 N 份显存和 N 份进程管理，单位请求成本不降。既然 sm75 及更老（不能跑 vLLM）已排除在部署范围外，不再维护这套进程池形态（见 8.5.10.1）。
 - **并行度被上游实现锁死**：`CosyVoice3Model.tts()` 的 LLM 工作全部投递到同一个 `self.llm_context` CUDA stream，多线程只是在 CPU 侧填空隙。
 
 因此唯一能降低单卡成本的路径是**批处理**，且优先用上游（FunAudioLLM）已经支持的两条路径，而不是在本仓库自研调度器：
@@ -995,7 +995,7 @@ TF32 / fp16 实测：
 | 加速项 | 解决的问题 | 上游实现 | 开关 |
 |---|---|---|---|
 | vLLM | LLM 逐 token 生成在单 stream 上串行 | `Qwen2LM.inference_wrapper` 的 vLLM 分支：`add_request` + 锁内 `step()`，跨请求连续 batching | `engine.cosyvoice.load_vllm` |
-| TensorRT | Flow/DiT estimator 的 kernel 启动与推理开销 | 由 `flow.decoder.estimator.fp32.onnx` 构建 `fp32.<gpu>.plan`，`TrtContextWrapper(trt_concurrent)` 提供多 context/stream | `engine.cosyvoice.load_trt`、`trt_concurrent` |
+| TensorRT | Flow/DiT estimator 的 kernel 启动与推理开销 | 由 `flow.decoder.estimator.fp32.onnx` 构建 `fp32.mygpu.plan`（文件名固定，不随卡型变化），`TrtContextWrapper(trt_concurrent)` 提供多 context/stream | `engine.cosyvoice.load_trt`、`trt_concurrent` |
 
 实现约定：
 
@@ -1022,6 +1022,12 @@ TF32 / fp16 实测：
 - 上游 vLLM 分支把 prompt embedding 显式转成 `bfloat16`（`cosyvoice/llm/llm.py`），导出也按 bf16 保存。Turing（sm75，如 T4、Quadro RTX 6000）没有原生 bf16，vLLM 路径在这类卡上大概率不可用；启用前必须先在目标卡上跑 `gpu_smoke.py --vllm`。
 - TensorRT 与 fp16 不能叠加：上游明确 fp16 DiT engine 有性能与音质问题；`engine.cosyvoice.fp16` 保持 `false`。
 - 首次启动会多出导出/编译时间（分钟级），K8s 需放宽 startupProbe 或预生成产物。
+
+#### 8.5.10.1 部署前置条件：必须支持 bf16（sm80+）
+
+vLLM 路径把 prompt embedding 与导出权重都转成 `bfloat16`，因此部署卡必须原生支持 bf16；sm75 及更老（T4、Quadro RTX 6000 等）不在支持范围。这类卡上进程内并发已经负收益（Quadro RTX 6000 实测 c=2 1.16×、c=4 0.96×，见 8.5.9），而唯一能提高单卡并发的手段——vLLM 连续批处理——又依赖 bf16。
+
+本仓库评估过「多进程 + CUDA MPS」作为兜底：4 进程实测约 1.09 req/s，接近线性，但每卡 N 份权重、N 套进程管理，单位请求成本不降，且与 vLLM 互斥。既然目标机群统一为 bf16 卡，该形态已从仓库移除，不再提供第二套部署与排障路径；扩容单位是**副本**（一张卡一个运行时进程），不是同卡多进程。
 
 #### 8.5.11 100 / 1000 压测门槛
 
@@ -1087,9 +1093,16 @@ cosyvoice_stream_gap_seconds_bucket
 cosyvoice_llm_tokens_total
 cosyvoice_token2wav_frames_total
 cosyvoice_queue_depth{service}
+cosyvoice_gpu_utilization_ratio
 cosyvoice_gpu_memory_used_bytes
+cosyvoice_gpu_memory_total_bytes
+cosyvoice_gpu_memory_utilization_ratio
 cosyvoice_errors_total{code}
 ```
+
+GPU 序列由运行时内的 `nvidia-smi` 采样线程发布（默认 5s，`metrics.gpu_sampling_interval_s` 可关），
+用于判断单卡是算力到顶还是被串行阶段卡住，以及作为副本级 HPA 的辅助信号。它是设备级数值，
+前提是一个运行时进程独占一张卡（本仓库的部署模型）；同卡多进程不在支持范围内。
 
 日志：
 
@@ -1232,12 +1245,13 @@ curl -X POST https://tts.internal.example.com/api/v1/services/audio/tts/SpeechSy
 - 结构化日志、request_id/tenant/task_id 上下文、Prometheus 指标与直方图。
 - 本地音频存储、HMAC 签名 URL、TTL 清理；签名 URL 文件名白名单。
 - Docker 非 root/只读根文件系统；Helm chart（Deployment/Service/Ingress/HPA/PDB/NetworkPolicy/ServiceMonitor）。
-- `scripts/loadtest.py` 网关级 HTTP/SSE/WS 压测。
+- `scripts/loadtest.py` 网关级 HTTP/SSE/WS 压测；报告原始音频字节、合成音频秒数与 `aggregate_rtf`，支持 `--base-urls` 轮流打多副本或网关后端。
 - 进程内加速栈接线：`engine.cosyvoice.load_vllm` / `load_trt` / `trt_concurrent` 透传到上游，启动前预检模块、ONNX/plan 与目录可写性（见 8.5.10）；`scripts/gpu_smoke.py` 支持 `--vllm`、`--trt`、`--concurrency/--tasks` 做开关前后对比。默认关闭。
 
 尚未完成，不能据此宣称生产验收通过：
 
-- vLLM / TensorRT 加速栈在真实 GPU 上的吞吐、首包与音质验收（判定标准见 8.5.10）。
+- vLLM / TensorRT 加速栈在真实 bf16 卡（sm80+）上的吞吐、首包与音质验收（判定标准见 8.5.10）；这是主路径，应在换卡后先做。
+- 部署前置条件是 bf16 卡（sm80+）；sm75 及更老不在支持范围，也不提供同卡多进程形态（见 8.5.10.1）。
 - 真实 GPU 上的 CosyVoice 模型加载、精度、RTF、显存与音质回归。
 - 百炼官方 SDK 的全量契约回归（尤其边界参数、SSML、错误结构）。
 - 远程 LLM/Token2Wav 模型服务适配器；当前只有进程内引擎。

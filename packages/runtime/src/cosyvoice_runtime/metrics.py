@@ -40,6 +40,19 @@ def _escape(value: str) -> str:
     return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
+def _value(value: float) -> str:
+    """Render a sample without exponent notation.
+
+    Byte counters and GPU memory gauges routinely exceed 1e9; ``1e+09`` is
+    valid Prometheus text but is harder to read in a scrape and in test
+    assertions, so integral values are printed as plain integers.
+    """
+    number = float(value)
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:g}"
+
+
 @dataclass
 class _Histogram:
     counts: list[int] = field(default_factory=lambda: [0] * len(_BUCKETS))
@@ -134,6 +147,25 @@ class Metrics:
             self._ready = 1 if ready else 0
             self._gauges[("cosyvoice_ready", ())] = self._ready
 
+    def set_gpu(self, utilization: float, used_bytes: int, total_bytes: int) -> None:
+        """Publish one GPU sample (ratios in 0..1, memory in bytes).
+
+        These are device-wide numbers from nvidia-smi, so they are only
+        meaningful when one runtime pod owns the GPU. Deployments that share
+        a device should rely on the node exporter's per-process view instead.
+        """
+        used = max(0, int(used_bytes))
+        total = max(0, int(total_bytes))
+        with self._lock:
+            self._gauges[("cosyvoice_gpu_utilization_ratio", ())] = max(
+                0.0, min(1.0, float(utilization))
+            )
+            self._gauges[("cosyvoice_gpu_memory_used_bytes", ())] = used
+            self._gauges[("cosyvoice_gpu_memory_total_bytes", ())] = total
+            self._gauges[("cosyvoice_gpu_memory_utilization_ratio", ())] = (
+                used / total if total else 0.0
+            )
+
     # -- histograms -------------------------------------------------------
     def observe(self, name: str, value: float, **labels: str) -> None:
         key = (name, tuple(sorted((k, str(v)) for k, v in labels.items())))
@@ -181,7 +213,7 @@ class Metrics:
             for name, samples in sorted(counters.items()):
                 lines.append(f"# TYPE {name} counter")
                 for label_text, value in samples:
-                    lines.append(f"{name}{label_text} {value:g}")
+                    lines.append(f"{name}{label_text} {_value(value)}")
 
             gauges: dict[str, list[tuple[str, float]]] = {}
             for (name, labels), value in sorted(self._gauges.items()):
@@ -189,7 +221,7 @@ class Metrics:
             for name, samples in sorted(gauges.items()):
                 lines.append(f"# TYPE {name} gauge")
                 for label_text, value in samples:
-                    lines.append(f"{name}{label_text} {value:g}")
+                    lines.append(f"{name}{label_text} {_value(value)}")
 
             histograms: dict[str, list[tuple[str, _Histogram]]] = {}
             for (name, labels), histogram in sorted(self._histograms.items()):
@@ -204,7 +236,7 @@ class Metrics:
                         lines.append(f"{name}_bucket{labels} {cumulative}")
                     labels = self._with_le(label_text, "+Inf")
                     lines.append(f"{name}_bucket{labels} {histogram.count}")
-                    lines.append(f"{name}_sum{label_text} {histogram.total:g}")
+                    lines.append(f"{name}_sum{label_text} {_value(histogram.total)}")
                     lines.append(f"{name}_count{label_text} {histogram.count}")
             lines.append("")
             return "\n".join(lines)

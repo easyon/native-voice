@@ -18,5 +18,17 @@ tensorrt-cu12==10.13.3.9
 tensorrt-cu12-bindings==10.13.3.9
 tensorrt-cu12-libs==10.13.3.9
 
+# Packaging note (verified 2026-11-13): on PyPI these three are *sdists* built
+# by the `wheel-stub` backend, which downloads NVIDIA's real wheel from
+# https://pypi.nvidia.com during the build. `pip install` therefore needs to
+# run the build backend once - a wheelhouse prepared with `pip download` gets
+# the 703-byte stub sdist, not the library. Consequences:
+#   * The bundle builder must install (or `pip wheel`) them on the prep host,
+#     not merely download them; deploy/prepare-bundle.sh packages the resulting
+#     venv for this reason.
+#   * pypi.nvidia.com redirects to pypi.nvidia.cn in mainland China; mirror
+#     rules that strip the redirect break the build.
+#   * The installed trio is ~1.2GB (tensorrt_cu12_libs dominates).
+#
 # Do not combine with fp16: upstream warns that the fp16 DiT TensorRT engine
 # has performance and quality problems. Keep engine.cosyvoice.fp16=false.
