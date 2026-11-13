@@ -213,6 +213,12 @@ class LimitsConfig(_Base):
     # Guard the gateway against unbounded memory when SSE also stores the full
     # utterance for a download URL. Streaming itself is unaffected.
     max_stream_audio_bytes: int = 64 * 1024 * 1024
+    # Engine chunks can be several seconds long (CosyVoice yields a whole
+    # sentence at a time). Split PCM/WAV chunks into at most this many bytes
+    # before SSE/WS framing so the first audio frame reaches the client without
+    # waiting for the entire sentence to cross the network. 16 KiB is ~170 ms
+    # at 24 kHz mono s16. 0 disables splitting.
+    stream_chunk_bytes: int = 16_384
     ssml_strict: bool = True
 
 

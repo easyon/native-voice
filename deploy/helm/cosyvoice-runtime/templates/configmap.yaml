@@ -87,6 +87,7 @@ data:
       ws_queue_size: {{ .Values.runtime.limits.wsQueueSize }}
       ws_cancel_timeout_s: {{ .Values.runtime.limits.wsCancelTimeoutS }}
       max_stream_audio_bytes: {{ .Values.runtime.limits.maxStreamAudioBytes }}
+      stream_chunk_bytes: {{ .Values.runtime.limits.streamChunkBytes }}
       ssml_strict: {{ .Values.runtime.limits.ssmlStrict }}
 
     storage:

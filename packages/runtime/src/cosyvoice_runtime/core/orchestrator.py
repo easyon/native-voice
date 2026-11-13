@@ -165,6 +165,7 @@ class SynthesisOrchestrator:
                         except asyncio.TimeoutError as exc:
                             raise timeout_error("first audio timed out") from exc
 
+                        source_rate = chunk.sample_rate
                         if first_chunk_at is None:
                             first_chunk_at = time.monotonic()
                             self.metrics.first_audio(
@@ -172,9 +173,26 @@ class SynthesisOrchestrator:
                                 api=request.api,
                                 model=request.model,
                             )
-                        source_rate = chunk.sample_rate
                         total_bytes += len(chunk.pcm)
-                        yield chunk
+
+                        # CosyVoice yields one whole sentence at a time. On a
+                        # slow proxy/tunnel the client otherwise waits for the
+                        # entire sentence payload before it can start playback.
+                        # PCM/WAV concatenate safely; MP3 is left intact because
+                        # independently encoded chunks add encoder padding.
+                        limit = int(self.limits.stream_chunk_bytes)
+                        if (
+                            limit > 0
+                            and request.format in {"pcm", "wav"}
+                            and len(chunk.pcm) > limit
+                        ):
+                            for offset in range(0, len(chunk.pcm), limit):
+                                yield AudioChunk(
+                                    pcm=chunk.pcm[offset : offset + limit],
+                                    sample_rate=chunk.sample_rate,
+                                )
+                        else:
+                            yield chunk
         except APIError:
             raise
         except asyncio.CancelledError:

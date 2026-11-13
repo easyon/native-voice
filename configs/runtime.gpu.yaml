@@ -127,6 +127,9 @@ limits:
   ws_queue_size: 32
   ws_cancel_timeout_s: 5
   max_stream_audio_bytes: 67108864
+  # Split long engine chunks before SSE/WS framing. 16 KiB ≈ 170 ms at 24 kHz
+  # mono s16; set 0 to disable.
+  stream_chunk_bytes: 16384
   ssml_strict: true
 
 # Zero-shot voice cloning from an uploaded or recorded reference clip. The

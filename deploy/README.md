@@ -168,7 +168,33 @@ POST   /api/v1/voices/clone           multipart: audio, transcript, name, source
 DELETE /api/v1/voices/{voice_id}      只允许删除克隆音色
 ```
 
-新建的克隆音色在本次进程内走每请求提取 prompt 特征（比启动时缓存的音色多约 0.4s 首包）；重启后会和其他 zero-shot 音色一起缓存。
+克隆音色创建后会立即缓存 prompt 特征；若缓存失败会回退到每请求提取（实测多约 0.1s 首包），重启后会重新缓存。
+
+### 0.3.2 首音时延优化
+
+实测（RTX 5090、fp32、未开 vLLM/TensorRT、首句约 3.4s 音频）：
+
+| 环节 | 时间 |
+|---|---|
+| 请求开始 → 第一块音频（服务端本机） | 1.54–1.66s |
+| 经 SSH 隧道客户端 TTFF | 2.43–2.54s |
+| 运行时新建、未缓存 prompt 的克隆音色 | 比缓存音色多约 0.1s |
+| vLLM 探测（独立环境） | 0.54–0.76s |
+
+服务端时间基本等于 `首块音频时长 × RTF`：首句 3.4s、RTF 0.48，约 1.63s。客户端多出的约 0.8s 主要来自首块 PCM 的 base64/SSH 隧道传输。
+
+已默认启用的代码优化：
+
+- `limits.stream_chunk_bytes: 16384`：把引擎按整句返回的 PCM/WAV 拆成约 170ms 的帧再走 SSE/WS，首帧不用等整句过网络；设为 `0` 关闭。MP3 不拆，避免重复编码产生间隙。
+- 克隆音色创建后立即调用 `add_zero_shot_spk` 缓存 prompt 特征；失败时自动回退到每请求提取。
+
+需要设备验证的进一步优化（按收益排序）：
+
+1. `load_vllm=true`（最大收益，TTFF 约 0.5–0.8s，需独立 vLLM venv + transformers 4.57.1）；
+2. `load_trt=true`（压 flow/DiT，先构建 `flow.decoder.estimator.fp32.*.plan`）；
+3. 文本首句短：CosyVoice 按 `。` 分句，首句越短首块越早产出；
+4. 业务直连/反代替代 SSH 隧道，流式优先 WebSocket（二进制帧，无 base64）；
+5. `fp16` 不要默认开，先在目标卡上对比 RTF 和音质。
 
 ## 0.6 离线包与复用已有环境
 

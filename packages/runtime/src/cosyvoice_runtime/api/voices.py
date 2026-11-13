@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from cosyvoice_common.errors import APIError
 from fastapi import APIRouter, File, Form, Header, Request, UploadFile
 
 from .deps import authenticate, runtime_from_request
+
+logger = logging.getLogger("cosyvoice_runtime.voices")
 
 router = APIRouter()
 
@@ -83,6 +86,16 @@ async def clone_voice(
     voice = runtime.cloned_voices.voice_config(info.id)
     if voice is not None:
         runtime.registry.add_voice(info.id, voice)
+        cache = getattr(runtime.engine, "cache_zero_shot_voice", None)
+        if cache is not None:
+            try:
+                await cache(voice)
+            except Exception:  # noqa: BLE001 - latency optimization only
+                logger.warning(
+                    "failed to cache prompt features for cloned voice %s",
+                    info.id,
+                    exc_info=True,
+                )
     return {"voice": _voice_body(info, cloned=True), "tenant": tenant.id}
 
 

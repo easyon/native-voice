@@ -260,6 +260,8 @@ runtime:
     wsQueueSize: 32
     wsCancelTimeoutS: 5
     maxStreamAudioBytes: 67108864
+    # Split long engine chunks before SSE/WS framing (0 disables).
+    streamChunkBytes: 16384
     ssmlStrict: true
 
   storage:

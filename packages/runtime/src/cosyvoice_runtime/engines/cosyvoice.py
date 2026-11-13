@@ -327,6 +327,46 @@ class CosyVoiceEngine(TTSEngine):
                 artifact,
             )
 
+    async def cache_zero_shot_voice(self, voice: VoiceConfig) -> None:
+        """Cache prompt features for a voice created after model load.
+
+        Cloned voices are registered at runtime; without this they would pay
+        prompt feature extraction on every request until the next restart.
+        Best-effort: any failure leaves the per-request path in place.
+        """
+        if not self.config.cache_prompt_features or not self._uses_zero_shot(voice):
+            return
+        if not voice.prompt_wav or not voice.prompt_text:
+            return
+        fingerprint = self._prompt_fingerprint(voice)
+        async with self._semaphore:
+            for scope, model in list(self._models.items()):
+                if (scope, fingerprint) in self._prompt_ids:
+                    continue
+                add = getattr(model, "add_zero_shot_spk", None)
+                if add is None:
+                    continue
+                try:
+                    prompt_text = self._normalize_prompt_text(
+                        model, voice.prompt_text
+                    )
+                    await asyncio.to_thread(
+                        add, prompt_text, voice.prompt_wav, fingerprint
+                    )
+                except Exception:  # noqa: BLE001 - optimization only
+                    logger.warning(
+                        "failed to cache prompt features for %s",
+                        voice.prompt_wav,
+                        exc_info=True,
+                    )
+                    continue
+                self._prompt_ids[(scope, fingerprint)] = fingerprint
+                logger.info(
+                    "cached zero-shot prompt features for %s on %s",
+                    voice.prompt_wav,
+                    scope,
+                )
+
     def _call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         try:
             signature = inspect.signature(fn)
