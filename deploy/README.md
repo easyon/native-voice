@@ -185,8 +185,9 @@ DELETE /api/v1/voices/{voice_id}      只允许删除克隆音色
 
 已默认启用的代码优化：
 
-- `limits.stream_chunk_bytes: 16384`：把引擎按整句返回的 PCM/WAV 拆成约 170ms 的帧再走 SSE/WS，首帧不用等整句过网络；设为 `0` 关闭。MP3 不拆，避免重复编码产生间隙。
+- `limits.stream_chunk_bytes: 16384`：把引擎按整句返回的 PCM/WAV 拆成约 170ms 的帧再走 SSE/WS，首帧不用等整句过网络；设为 `0` 关闭。MP3 不拆，避免重复编码产生间隙。实测经 SSH 隧道的 SSE TTFF 从 2.4–2.5s 降到约 2.0s。
 - 克隆音色创建后立即调用 `add_zero_shot_spk` 缓存 prompt 特征；失败时自动回退到每请求提取。
+- 测试台的“首句加速”开关：把第一个逗号临时改成句号，缩短首句。实测 SSE TTFF 约 810ms、WS 约 866ms（长首句约 2.0s）。只影响本次合成，适合验证首包时延。
 
 需要设备验证的进一步优化（按收益排序）：
 

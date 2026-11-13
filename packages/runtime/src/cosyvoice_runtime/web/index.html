@@ -187,6 +187,10 @@
         <label for="text">文本</label>
         <textarea id="text" spellcheck="false">你好，我是你的语音助手，很高兴为你服务。今天想聊点什么？</textarea>
         <div class="hint">单次上限 20000 字符；SSE/WS 会按句切分并边合成边返回。</div>
+        <div class="inline" style="margin-top:7px">
+          <input type="checkbox" id="fast-first">
+          <label for="fast-first">首句加速：把第一个逗号临时改成句号，缩短首包（只影响本次合成）</label>
+        </div>
       </div>
 
       <div class="row three">
@@ -359,7 +363,7 @@
   const els = {
     status: $('status'), statusText: $('status-text'), refresh: $('refresh'),
     apiKey: $('api-key'), toggleKey: $('toggle-key'), remember: $('remember-key'),
-    model: $('model'), voice: $('voice'), text: $('text'),
+    model: $('model'), voice: $('voice'), text: $('text'), fastFirst: $('fast-first'),
     format: $('format'), sampleRate: $('sample-rate'),
     volume: $('volume'), volumeVal: $('volume-val'),
     rate: $('rate'), rateVal: $('rate-val'), pitch: $('pitch'), pitchVal: $('pitch-val'),
@@ -423,6 +427,16 @@
     return new Blob([header, pcm], { type: 'audio/wav' });
   }
   const MIME = { pcm: 'audio/L16', wav: 'audio/wav', mp3: 'audio/mpeg', opus: 'audio/opus' };
+
+  // CosyVoice splits at sentence endings (。！？), not commas. Rewriting the
+  // first comma to a period makes the first synthesized sentence much shorter,
+  // so the first audio chunk arrives sooner. Opt-in only: it changes prosody.
+  function fastFirstSentence(text) {
+    if (!els.fastFirst || !els.fastFirst.checked) return text;
+    const index = text.search(/[，,]/);
+    if (index < 0) return text;
+    return text.slice(0, index) + '。' + text.slice(index + 1);
+  }
 
   function log(message, level) {
     const line = document.createElement('div');
@@ -628,7 +642,7 @@
   // ---------------------------------------------------------------- request
   function requestBody() {
     const input = {
-      text: els.text.value,
+      text: fastFirstSentence(els.text.value),
       voice: els.voice.value,
       format: els.format.value,
       sample_rate: Number(els.sampleRate.value),
@@ -837,7 +851,7 @@
           log('WS task-started', 'dim');
           send({
             header: { action: 'continue-task', task_id: taskId, streaming: 'duplex' },
-            payload: { input: { text: els.text.value } },
+            payload: { input: { text: fastFirstSentence(els.text.value) } },
           });
           send({
             header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
