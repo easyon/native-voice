@@ -55,9 +55,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # bzip2/ca-certificates/curl are needed to bootstrap micromamba. ffmpeg is used
 # by the gateway for mp3/resampling; libsndfile1 backs the soundfile loader.
+# build-essential compiles pyworld, which upstream imports at load time.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bzip2 \
+        build-essential \
         ca-certificates \
         curl \
         ffmpeg \
@@ -84,7 +86,12 @@ ENV VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:${PATH}
 
 COPY requirements-runtime.lock requirements-cosyvoice.lock /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements-runtime.lock \
+# openai-whisper's sdist imports pkg_resources at build time, which
+# setuptools>=81 removed. Pin build tooling and build it un-isolated; it is
+# excluded from requirements-cosyvoice.lock for that reason.
+RUN pip install --no-cache-dir "setuptools<81" wheel \
+    && pip install --no-cache-dir --no-build-isolation "openai-whisper==20240930" \
+    && pip install --no-cache-dir -r /tmp/requirements-runtime.lock \
     && pip install --no-cache-dir -r /tmp/requirements-cosyvoice.lock
 
 COPY --from=wheelbuilder /wheels /wheels

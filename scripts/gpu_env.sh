@@ -15,6 +15,8 @@
 #
 # Overridable:
 #   COSYVOICE_PYTHON             interpreter used to locate torch (default: python)
+#   COSYVOICE_REPO               CosyVoice checkout to put on PYTHONPATH
+#   COSYVOICE_MATCHA_REPO        Matcha-TTS checkout (default: $COSYVOICE_REPO/third_party/Matcha-TTS)
 #   COSYVOICE_EXTRA_LIB_DIRS     colon-separated directories prepended first
 #   COSYVOICE_GPU_ENV_VERBOSE=1  print the resolved library path
 
@@ -96,13 +98,34 @@ print("TORCH_VERSION=" + torch.__version__)
         export CUDA_HOME
     fi
 
+    # Make the upstream checkout importable without an editable install.
+    # Set COSYVOICE_REPO to the CosyVoice clone; third_party/Matcha-TTS is
+    # appended when present (override with COSYVOICE_MATCHA_REPO).
+    if [ -n "${COSYVOICE_REPO:-}" ] && [ -d "$COSYVOICE_REPO/cosyvoice" ]; then
+        _cv_repo=$COSYVOICE_REPO
+        _cv_matcha=${COSYVOICE_MATCHA_REPO:-$_cv_repo/third_party/Matcha-TTS}
+        case ":${PYTHONPATH:-}:" in
+            *":$_cv_repo:"*) ;;
+            *) PYTHONPATH="$_cv_repo${PYTHONPATH:+:$PYTHONPATH}" ;;
+        esac
+        if [ -d "$_cv_matcha" ]; then
+            case ":${PYTHONPATH:-}:" in
+                *":$_cv_matcha:"*) ;;
+                *) PYTHONPATH="$_cv_matcha${PYTHONPATH:+:$PYTHONPATH}" ;;
+            esac
+        fi
+        export PYTHONPATH
+    fi
+
     if [ "${COSYVOICE_GPU_ENV_VERBOSE:-0}" = "1" ]; then
         printf 'gpu_env: torch=%s\n' "${_cv_torch_version:-<not importable>}" >&2
         printf 'gpu_env: LD_LIBRARY_PATH=%s\n' "${_cv_path:-<empty>}" >&2
+        printf 'gpu_env: PYTHONPATH=%s\n' "${PYTHONPATH:-<empty>}" >&2
     fi
 
     unset _cv_py _cv_info _cv_torch_lib _cv_torch_sp _cv_prefix_lib \
-        _cv_purelib _cv_torch_version _cv_path _cv_old_ifs _cv_dir
+        _cv_purelib _cv_torch_version _cv_path _cv_old_ifs _cv_dir \
+        _cv_repo _cv_matcha
     return 0
 }
 

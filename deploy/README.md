@@ -36,8 +36,17 @@ bash deploy/bootstrap-gpu.sh
 - `PROMPT_TEXT` 必须与 `PROMPT_WAV` 的内容一致，且包含 `<|endofprompt|>`；不一致会明显掉音色相似度。
 - 脚本生成的是 `configs/runtime.local.gpu.yaml`，模板始终是受维护的 `configs/runtime.gpu.yaml`，不要手改生成物。
 - 模型下载单独跑也可以：`python scripts/fetch_model.py --dest /data/models/... --list-only` 先看文件清单（默认 ModelScope），去掉 `--list-only` 再下。断点续跑安全：已存在的完整文件跳过，sha256 不匹配会删掉重下。
-- 已经装好环境的机器，跳过准备工作直接起服务：`. scripts/gpu_env.sh && cosyvoice-runtime -c configs/runtime.gpu.yaml`。`gpu_env.sh` 会按 `COSYVOICE_PYTHON`（缺省 `python`）定位 torch 的 nvidia 库并拼好 `LD_LIBRARY_PATH`，这是 onnxruntime-gpu 不报 `libcublasLt.so.12` 的前提。
+- 已经装好环境的机器，跳过准备工作直接起服务：`COSYVOICE_PYTHON=/data/venvs/cosyvoice/bin/python COSYVOICE_REPO=/data/CosyVoice . scripts/gpu_env.sh && /data/venvs/cosyvoice/bin/cosyvoice-runtime -c configs/runtime.gpu.yaml`。`gpu_env.sh` 会按 `COSYVOICE_PYTHON`（缺省 `python`）定位 torch 的 nvidia 库拼好 `LD_LIBRARY_PATH`（onnxruntime-gpu 不报 `libcublasLt.so.12` 的前提），并把 `COSYVOICE_REPO` 和 `third_party/Matcha-TTS` 加进 `PYTHONPATH`（否则报 `No module named 'cosyvoice'`）。
 - 完全离线/内网机器走下面的镜像路径。
+- 国内网络可以把 PyPI 和 torch 都换成国内源（`PIP_INDEX_URL` pip 会自动识别，torch 用 `TORCH_INDEX_URL`）：
+
+  ```bash
+  PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  TORCH_INDEX_URL=https://mirrors.aliyun.com/pytorch-wheels/cu128 \
+  bash deploy/bootstrap-gpu.sh
+  ```
+
+  模型本身默认已经是 ModelScope；仓库 clone 慢时用 `COSYVOICE_URL` 指向可达镜像。下载模型、clone 仓库和装依赖彼此独立，可以并行跑（先 `fetch_model.py` + `git clone` 后台执行，再 `bootstrap-gpu.sh --skip-model`），但不要并发两个 pip 进程写同一个 venv。
 
 ## 0.1 单精度还是半精度？
 
@@ -85,6 +94,44 @@ python scripts/gpu_smoke.py ... --trt --trt-concurrent 2 --concurrency 4 --tasks
 ```
 
 通过标准：`aggregate_audio_per_wall_s` 明显高于基线（fp32 c=4 约 1.47× 实时），TTFF 不退化，音频抽检无串音。已知约束：`fp16` 不要和 TRT 叠加；plan 与 GPU 架构绑定；vLLM 会把 `transformers` 升到 4.57.1，回滚时依赖环境也要一起回退。启用/回滚与故障表见 [运维手册 7.3](../docs/ops/cosyvoice-runtime-runbook.md#73-加速栈vllm--tensorrt启用与回滚)。
+
+## 0.3 非 Ampere 卡实测（Quadro RTX 6000 24GB，2026-11-13）
+
+Turing（sm75，无 TF32/bf16）上同一 checkpoint、同一段 3.4s 文本：
+
+| 场景 | RTF | 首包 | 聚合实时倍率 | 显存 |
+|---|---|---|---|---|
+| 单流（3 次） | 0.83–1.14 | 2.58–3.17s | 1.0× | 3.4 GB |
+| c=2，8 任务 | 1.69 | p50 5.7s | 1.16× | 3.4 GB |
+| c=4，16 任务 | 4.10 | p50 14.2s | 0.96× | 3.5 GB |
+
+结论：这类卡上 `max_concurrent` 保持 1。c=2 只多 16% 吞吐却让首包翻倍，c=4 已经负收益（上游共用一条 CUDA stream，见技术方案 8.5.10）。要扩吞吐应多进程/CUDA MPS 或换 Ampere+；vLLM/TensorRT 在 sm75 上是否可用需按 0.2 的验收命令实测，不要直接照搬 A100 参数。
+
+## 0.4 上游隐式依赖
+
+checkpoint 里的 `cosyvoice3.yaml` 在加载时会解析训练段，所以 `cosyvoice.dataset.processor`（whisper、pyworld）和 Matcha-TTS 的 `matcha.utils`（gdown、matplotlib、wget）即使只做推理也会被 import。`requirements-cosyvoice.lock` 已包含这些包；其中 `pyworld` 需要 `python3.X-dev` + `g++`，`openai-whisper` 的 sdist 需要 `setuptools<81`，`bootstrap-gpu.sh` 会自动处理（缺头文件时 apt 安装、whisper 用 `--no-build-isolation` 单独装）。手工装环境时按 [lock 文件里的注释](../requirements-cosyvoice.lock) 操作。
+
+## 0.3 浏览器测试页（/ui）
+
+服务自带一个单文件测试台，部署后直接打开：
+
+```text
+http://<host>:8000/ui
+```
+
+页面会从 `/readyz` 读取当前的 model/voice key，支持同步 HTTP、SSE、WebSocket 三种调用方式，并显示首包 TTFF、总耗时、音频大小和事件日志；还能一键复制对应的 curl。页面是静态文件，不依赖 CDN、Node 或构建步骤，内网/离线机器也能用。
+
+两个注意点：
+
+- 页面不会被鉴权拦截，但调用 API 时会带上你在页面里填的 Bearer key。开启 `auth.enabled` 后，同步/SSE 模式可用；浏览器的 WebSocket API 不能自定义 `Authorization` 头，WS 模式会以 4401 关闭，只能在内网验收时临时关闭鉴权或改用同步/SSE。
+- 反代/端口映射要同时放行 `/ui`、`/api/v1`、`/api-ws`、`/healthz`、`/readyz`，SSE 和 WS 仍需关闭缓冲并放大超时（Helm values 里已配置）。
+
+不需要时在配置里关闭：
+
+```yaml
+server:
+  ui_enabled: false
+```
 
 ## 1. 构建镜像
 

@@ -1019,6 +1019,7 @@ TF32 / fp16 实测：
 
 - `vllm==0.19.1` 锁定 `torch==2.10.0`（与已验证栈一致），但会把 `transformers` 升到 4.57.1；非 vLLM 部署继续保持 4.51.3。升级后必须重跑文本前端与音色回归。
 - vLLM 的采样实现与上游 Python sampler 不保证逐 bit 一致，需按音色抽检。
+- 上游 vLLM 分支把 prompt embedding 显式转成 `bfloat16`（`cosyvoice/llm/llm.py`），导出也按 bf16 保存。Turing（sm75，如 T4、Quadro RTX 6000）没有原生 bf16，vLLM 路径在这类卡上大概率不可用；启用前必须先在目标卡上跑 `gpu_smoke.py --vllm`。
 - TensorRT 与 fp16 不能叠加：上游明确 fp16 DiT engine 有性能与音质问题；`engine.cosyvoice.fp16` 保持 `false`。
 - 首次启动会多出导出/编译时间（分钟级），K8s 需放宽 startupProbe 或预生成产物。
 

@@ -129,6 +129,9 @@ cosyvoice-runtime -c configs/runtime.gpu.yaml
 # 3) 三条接入路径各打一次
 python /path/to/api_smoke.py http://127.0.0.1:8000 cosyvoice3-0.5b assistant
 
+# 3b) 浏览器验收：打开 http://<host>:8000/ui，选择三种模式各合成一次。
+#     页面会显示 TTFF/总耗时/事件日志；开启鉴权时 WS 模式不可用（见 deploy/README 0.3）。
+
 # 4) 阶梯并发：TTFF / RTF / 显存
 #    先按 max_concurrent 的 1/2/4 打；超过 max_concurrent 只会排队并超时，
 #    不会提高吞吐（见 docs/design/cosyvoice-runtime.md 8.5.9 实测）。

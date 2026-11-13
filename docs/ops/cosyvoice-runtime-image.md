@@ -245,6 +245,8 @@ libcudnn.so.9: cannot open shared object file
 5. venv purelib 的 `nvidia/*/lib`
 6. `/usr/local/cuda/lib64`、`/usr/local/nvidia/lib64`
 
+`gpu_env.sh` 还会在 `COSYVOICE_REPO` 指向一个含 `cosyvoice/` 的 checkout 时，把该目录和 `third_party/Matcha-TTS` 追加进 `PYTHONPATH`。容器里 entrypoint 做同样的拼接；裸机部署因此可以复用同一条启动命令，不会报 `No module named 'cosyvoice'`。
+
 排查：
 
 ```bash

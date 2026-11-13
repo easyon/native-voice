@@ -11,6 +11,11 @@
 #   MODEL_DIR=/data/models/Fun-CosyVoice3-0.5B COSYVOICE_REPO=/data/CosyVoice \
 #     bash deploy/bootstrap-gpu.sh
 #
+# Mirror override for mainland China (pip and torch wheels):
+#   PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+#   TORCH_INDEX_URL=https://mirrors.aliyun.com/pytorch-wheels/cu128 \
+#     bash deploy/bootstrap-gpu.sh
+#
 # Defaults keep large assets on /data (override with MODEL_DIR/COSYVOICE_REPO):
 #   VENV=$HOME/.venvs/cosyvoice  MODEL_DIR=/data/models/Fun-CosyVoice3-0.5B
 #   COSYVOICE_REPO=/data/CosyVoice  MODEL_SOURCE=auto (ModelScope, then hf-mirror)
@@ -40,6 +45,8 @@ LOAD_VLLM=${LOAD_VLLM:-0}
 LOAD_TRT=${LOAD_TRT:-0}
 TRT_CONCURRENT=${TRT_CONCURRENT:-2}
 SMOKE_CONCURRENCY=${SMOKE_CONCURRENCY:-0}
+# pip honors PIP_INDEX_URL automatically; torch needs an explicit index.
+TORCH_INDEX_URL=${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
 START=1
 SKIP_MODEL=0
 
@@ -73,7 +80,7 @@ PY="$VENV/bin/python"
 if ! "$PY" -c 'import torch' >/dev/null 2>&1; then
   log "installing torch/torchaudio (cu128 wheels)"
   "$PY" -m pip install -q torch==2.10.0 torchaudio==2.10.0 \
-    --index-url https://download.pytorch.org/whl/cu128
+    --index-url "$TORCH_INDEX_URL"
 else
   log "reusing the torch already installed in $VENV"
 fi
@@ -86,8 +93,43 @@ assert torch.version.cuda and torch.version.cuda.startswith("12."), \
     f"torch was built for CUDA {torch.version.cuda}; this stack is verified on cu12x"
 PYCHECK
 
+# pyworld (imported by the checkpoint's dataset.processor tags) and
+# openai-whisper build native code. Bare-metal hosts often have neither the
+# Python headers nor a compiler; install the distro packages when missing.
+has_python_headers() {
+  "$PY" -c 'import os, sysconfig; raise SystemExit(0 if os.path.exists(os.path.join(sysconfig.get_paths()["include"], "Python.h")) else 1)' 2>/dev/null
+}
+if ! has_python_headers; then
+  if command -v apt-get >/dev/null 2>&1; then
+    pydev=$("$PY" -c 'import sys; print(f"python{sys.version_info[0]}.{sys.version_info[1]}-dev")')
+    log "installing $pydev for pyworld's C++ extension"
+    apt-get update >/dev/null 2>&1 || true
+    apt-get install -y "$pydev" >/dev/null 2>&1 \
+      || apt-get install -y python3-dev >/dev/null 2>&1 \
+      || die "install $pydev (or python3-dev) and rerun"
+    has_python_headers || die "Python.h still missing after installing $pydev"
+  else
+    die "Python.h not found; install the Python development headers for $("$PY" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
+  fi
+fi
+if ! command -v g++ >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    log "installing build-essential for native extensions"
+    apt-get update >/dev/null 2>&1 || true
+    apt-get install -y build-essential >/dev/null 2>&1 || die "install build-essential and rerun"
+  else
+    die "g++ not found; install a C++ toolchain and rerun"
+  fi
+fi
+
 log "installing runtime packages"
 "$PY" -m pip install -q -e "$ROOT/packages/common" -e "$ROOT/packages/runtime"
+# whisper's sdist needs pkg_resources at build time; setuptools>=81 dropped it.
+# Install it un-isolated against a pinned setuptools instead of letting pip
+# resolve a build environment that cannot build it. See requirements-cosyvoice.lock.
+log "installing openai-whisper (no build isolation, setuptools<81)"
+"$PY" -m pip install -q "setuptools<81" wheel
+"$PY" -m pip install -q --no-build-isolation "openai-whisper==20240930"
 log "installing engine dependencies (pinned)"
 "$PY" -m pip install -q -r "$ROOT/requirements-cosyvoice.lock"
 
@@ -204,7 +246,9 @@ if [ "${SMOKE_CONCURRENCY:-0}" -gt 1 ]; then
 fi
 
 if [ "$START" = "0" ]; then
-  log "prepared; start with: $VENV/bin/cosyvoice-runtime -c $CONFIG"
+  log "prepared; start with:"
+  log "  COSYVOICE_PYTHON=$PY COSYVOICE_REPO=$COSYVOICE_REPO . $ROOT/scripts/gpu_env.sh"
+  log "  $VENV/bin/cosyvoice-runtime -c $CONFIG"
   exit 0
 fi
 

@@ -88,12 +88,26 @@ modelscope==1.20.0        # TODO; wetext dependency (download helpers)
 lightning>=2.4
 rich>=13.0
 
+# Imported at module level even for inference-only use. HyperPyYAML resolves
+# every !name: tag in the checkpoint's cosyvoice3.yaml at load time, including
+# the training section (cosyvoice.dataset.processor -> whisper, pyworld), and
+# the DiT import chain pulls matcha.utils (gdown, matplotlib, wget).
+gdown==6.5.1
+matplotlib==3.9.4          # 3.10+ requires numpy>=2; this stack runs numpy 1.26.4
+contourpy==1.3.1           # matplotlib backend; 1.4+ also requires numpy>=2
+x-transformers==2.11.24    # imported by cosyvoice/flow/DiT/*
+pyworld==0.3.5             # C++ extension; needs python3.X-dev + g++ to build
+wget==3.2                  # matcha.utils.utils imports `wget`
+# openai-whisper is deliberately NOT listed here: its sdist imports
+# pkg_resources at build time, which setuptools>=81 removed, and it publishes
+# no cp312 wheel. Install it explicitly after pinning setuptools:
+#   pip install "setuptools<81" wheel
+#   pip install --no-build-isolation openai-whisper==20240930
+# deploy/bootstrap-gpu.sh and the GPU Dockerfile do this automatically.
+
 # Deliberately excluded:
 #   deepspeed        training only; large and compiles against torch
-#   openai-whisper   not used by the CosyVoice3 ONNX speech tokenizer
 #   tensorrt-cu12    only for load_trt=true; image defaults to TensorRT off
-#   gdown            model download helper; model assets are mounted
-#   matplotlib       plotting/reporting only
 #   onnx             inference uses onnxruntime; uncomment onnx==1.16.2 if the
 #                    pinned upstream checkout imports it
 #   sentencepiece    Qwen2 tokenizer ships tokenizer.json; add if a checkpoint
