@@ -13,10 +13,24 @@ from __future__ import annotations
 import importlib
 import logging
 import sys
+import threading
 import types
 from typing import Any
 
 logger = logging.getLogger("cosyvoice_runtime.engine")
+
+# The LLM sampler runs in a worker thread; vLLM's SamplingParams are built in
+# that same thread. A thread-local seed lets the vLLM sampler reproduce the
+# request's `seed` instead of using vLLM's own RNG.
+_SEED = threading.local()
+
+
+def set_current_seed(seed: int) -> None:
+    _SEED.value = int(seed)
+
+
+def get_current_seed() -> int | None:
+    return getattr(_SEED, "value", None)
 
 
 def _soundfile_load_wav(wav: Any, target_sr: int, min_sr: int = 16_000) -> Any:
@@ -182,4 +196,43 @@ def install_vllm_engine_overrides(overrides: dict[str, Any] | None = None) -> bo
     vllm.LLMEngine.from_engine_args = staticmethod(from_engine_args)
     _VLLM_PATCHED = True
     logger.debug("patched vllm.LLMEngine.from_engine_args")
+    return True
+
+
+_VLLM_SAMPLING_PATCHED = False
+
+
+def install_vllm_sampling_defaults(top_p: float | None = None) -> bool:
+    """Give vLLM sampling the request seed (and optionally a top_p cap).
+
+    Upstream's vLLM branch builds ``SamplingParams(top_k=sampling, ...)`` only.
+    vLLM then defaults to ``top_p=1.0`` and an engine-owned RNG, so the same
+    request text produces different speech on every call. The non-vLLM path
+    uses ``ras_sampling`` with ``top_p=0.8``. A narrow top_p can make this
+    model emit EOS too early, so it is opt-in; the seed is always injected.
+    """
+    global _VLLM_SAMPLING_PATCHED
+    try:
+        import vllm
+    except ImportError:
+        return False
+    if _VLLM_SAMPLING_PATCHED:
+        return True
+
+    original = vllm.SamplingParams
+
+    def SamplingParams(*args: Any, **kwargs: Any) -> Any:
+        if top_p is not None:
+            kwargs.setdefault("top_p", top_p)
+        seed = get_current_seed()
+        if seed is not None:
+            kwargs.setdefault("seed", seed)
+        return original(*args, **kwargs)
+
+    vllm.SamplingParams = SamplingParams
+    _VLLM_SAMPLING_PATCHED = True
+    logger.info(
+        "patched vLLM SamplingParams: top_p=%s, per-request seed",
+        "default" if top_p is None else f"{top_p:.2f}",
+    )
     return True

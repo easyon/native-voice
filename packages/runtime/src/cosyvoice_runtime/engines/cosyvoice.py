@@ -172,6 +172,7 @@ class CosyVoiceEngine(TTSEngine):
         from .cosyvoice_compat import (
             install_modelscope_stub,
             install_vllm_engine_overrides,
+            install_vllm_sampling_defaults,
             install_wav_loader,
             install_wetext_assets,
         )
@@ -194,6 +195,8 @@ class CosyVoiceEngine(TTSEngine):
                 "could not apply vLLM engine sizing; upstream hardcodes "
                 "gpu_memory_utilization=0.2, which may not start on this GPU"
             )
+        if self.config.load_vllm and os.getenv("COSYVOICE_VLLM_SAMPLING_PATCH") == "1":
+            install_vllm_sampling_defaults()
         if self.config.tf32:
             self._enable_tf32()
 
@@ -444,6 +447,14 @@ class CosyVoiceEngine(TTSEngine):
         )
 
     def _set_seed(self, seed: int) -> None:
+        # vLLM runs its sampler in a subprocess; SamplingParams carries the
+        # per-request seed. Record it before the generator is built.
+        try:
+            from .cosyvoice_compat import set_current_seed
+
+            set_current_seed(seed)
+        except Exception:  # noqa: BLE001 - optional dependency path
+            pass
         random.seed(seed)
         try:
             import numpy as np
