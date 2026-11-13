@@ -187,14 +187,15 @@
         <label for="text">文本</label>
         <textarea id="text" spellcheck="false">你好，我是你的语音助手，很高兴为你服务。今天想聊点什么？</textarea>
         <div class="hint">单次上限 20000 字符；SSE/WS 会按句切分并边合成边返回。</div>
-        <div class="inline" style="margin-top:7px">
-          <input type="checkbox" id="fast-first">
-          <label for="fast-first">首句加速：把第一个逗号临时改成句号，缩短首包（只影响本次合成）</label>
+        <div style="margin-top:10px">
+          <label for="first-target">首句目标时长 <span id="first-target-val">1.8</span>s（0=不断句）</label>
+          <input type="range" id="first-target" min="0" max="3" step="0.1" value="1.8" style="width:100%">
+          <div class="hint">在最近的逗号处断句，兼顾首包和后续连续播放；0 表示保留原首句。</div>
         </div>
         <div style="margin-top:10px">
-          <label for="prebuffer">播放预缓冲 <span id="prebuffer-val">1.2</span>s（流式 PCM/WAV）</label>
-          <input type="range" id="prebuffer" min="0" max="3" step="0.1" value="1.2" style="width:100%">
-          <div class="hint">首句短时，后续整句还没生成完，直接播放会断音；先缓冲一段再播可保持连续。</div>
+          <label for="prebuffer">播放预缓冲 <span id="prebuffer-val">0.0</span>s（0=收到就播）</label>
+          <input type="range" id="prebuffer" min="0" max="3" step="0.1" value="0" style="width:100%">
+          <div class="hint">默认 0，不拦截播放；若后续句子生成慢导致断音，可加到 1–2s。</div>
         </div>
       </div>
 
@@ -368,7 +369,8 @@
   const els = {
     status: $('status'), statusText: $('status-text'), refresh: $('refresh'),
     apiKey: $('api-key'), toggleKey: $('toggle-key'), remember: $('remember-key'),
-    model: $('model'), voice: $('voice'), text: $('text'), fastFirst: $('fast-first'),
+    model: $('model'), voice: $('voice'), text: $('text'),
+    firstTarget: $('first-target'), firstTargetVal: $('first-target-val'),
     prebuffer: $('prebuffer'), prebufferVal: $('prebuffer-val'),
     format: $('format'), sampleRate: $('sample-rate'),
     volume: $('volume'), volumeVal: $('volume-val'),
@@ -434,14 +436,32 @@
   }
   const MIME = { pcm: 'audio/L16', wav: 'audio/wav', mp3: 'audio/mpeg', opus: 'audio/opus' };
 
-  // CosyVoice splits at sentence endings (。！？), not commas. Rewriting the
-  // first comma to a period makes the first synthesized sentence much shorter,
-  // so the first audio chunk arrives sooner. Opt-in only: it changes prosody.
-  function fastFirstSentence(text) {
-    if (!els.fastFirst || !els.fastFirst.checked) return text;
-    const index = text.search(/[，,]/);
-    if (index < 0) return text;
-    return text.slice(0, index) + '。' + text.slice(index + 1);
+  // CosyVoice splits at sentence endings (。！？), not commas. A first sentence
+  // that is too short gives an early first chunk but the next sentence may not
+  // be generated in time, causing a playback gap. Pick the clause boundary
+  // closest to the target duration instead: early enough for TTFF, long enough
+  // to cover the next sentence at the current RTF.
+  function estimatedSpeechSeconds(text) {
+    return [...text].length * 0.18;
+  }
+
+  function shapeFirstSentence(text) {
+    const target = Number(els.firstTarget && els.firstTarget.value);
+    if (!target) return text;
+    const sentenceEnd = text.search(/[。！？!?]/);
+    const first = sentenceEnd >= 0 ? text.slice(0, sentenceEnd) : text;
+    if (estimatedSpeechSeconds(first) <= target) return text;
+    const boundary = /[，,、；;：:]/g;
+    let match;
+    let chosen = -1;
+    while ((match = boundary.exec(first)) !== null) {
+      if (estimatedSpeechSeconds(first.slice(0, match.index + 1)) >= target) {
+        chosen = match.index;
+        break;
+      }
+    }
+    if (chosen < 0) return text;
+    return text.slice(0, chosen) + '。' + text.slice(chosen + 1);
   }
 
   function log(message, level) {
@@ -677,7 +697,7 @@
   // ---------------------------------------------------------------- request
   function requestBody() {
     const input = {
-      text: fastFirstSentence(els.text.value),
+      text: shapeFirstSentence(els.text.value),
       voice: els.voice.value,
       format: els.format.value,
       sample_rate: Number(els.sampleRate.value),
@@ -886,7 +906,7 @@
           log('WS task-started', 'dim');
           send({
             header: { action: 'continue-task', task_id: taskId, streaming: 'duplex' },
-            payload: { input: { text: fastFirstSentence(els.text.value) } },
+            payload: { input: { text: shapeFirstSentence(els.text.value) } },
           });
           send({
             header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
@@ -1361,6 +1381,9 @@
   els.pitch.addEventListener('input', () => { els.pitchVal.textContent = Number(els.pitch.value).toFixed(2); });
   els.prebuffer.addEventListener('input', () => {
     els.prebufferVal.textContent = Number(els.prebuffer.value).toFixed(1);
+  });
+  els.firstTarget.addEventListener('input', () => {
+    els.firstTargetVal.textContent = Number(els.firstTarget.value).toFixed(1);
   });
   for (const radio of document.querySelectorAll('input[name="mode"]')) {
     radio.addEventListener('change', syncModeHint);
