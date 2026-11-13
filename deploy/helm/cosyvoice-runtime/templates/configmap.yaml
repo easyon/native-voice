@@ -23,6 +23,7 @@ data:
       cors_origins: {{ toYaml .Values.runtime.server.corsOrigins | nindent 8 }}
       trusted_hosts: {{ toYaml .Values.runtime.server.trustedHosts | nindent 8 }}
       docs_enabled: {{ .Values.runtime.server.docsEnabled }}
+      ui_enabled: {{ .Values.runtime.server.uiEnabled }}
       access_log: {{ .Values.runtime.server.accessLog }}
       proxy_headers: {{ .Values.runtime.server.proxyHeaders }}
       forwarded_allow_ips: {{ .Values.runtime.server.forwardedAllowIps | quote }}

@@ -20,6 +20,9 @@ server:
   max_ws_connections: 1000
   worker_threads: 32
   docs_enabled: false
+  # Browser acceptance console at /ui. Useful while validating a new GPU;
+  # set false once the host only serves business traffic.
+  ui_enabled: true
   access_log: false
 
 auth:

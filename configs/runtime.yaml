@@ -19,6 +19,9 @@ server:
   cors_origins: []
   trusted_hosts: []
   docs_enabled: false
+  # Browser test console at /ui (static page; no build step). Set false to
+  # expose only the API. It never stores the API key server-side.
+  ui_enabled: true
   access_log: true
   proxy_headers: true
   forwarded_allow_ips: 127.0.0.1

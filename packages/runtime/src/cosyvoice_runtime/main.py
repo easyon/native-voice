@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .api import files, health, http, ws
+from .api import files, health, http, ui, ws
 from .context import bind_context
 from .logging_config import configure_logging
 from .runtime import Runtime
@@ -257,6 +257,7 @@ def create_app(
     app.include_router(http.router)
     app.include_router(ws.router)
     app.include_router(files.router)
+    app.include_router(ui.router)
 
     app.add_middleware(
         BodySizeLimitMiddleware,

@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>CosyVoice 测试台</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --text: #171a20;
+    --muted: #667085;
+    --line: #e2e6ec;
+    --field: #fbfcfd;
+    --accent: #2563eb;
+    --accent-text: #ffffff;
+    --accent-weak: #e4edff;
+    --ok: #15803d;
+    --ok-weak: #dcfce7;
+    --warn: #b45309;
+    --warn-weak: #fef3c7;
+    --err: #b91c1c;
+    --err-weak: #fee2e2;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116;
+      --panel: #161a21;
+      --text: #e7eaf0;
+      --muted: #98a1b0;
+      --line: #2a303b;
+      --field: #1b2029;
+      --accent: #5b9bff;
+      --accent-text: #0b1220;
+      --accent-weak: #1b2b47;
+      --ok: #4ade80;
+      --ok-weak: #14301f;
+      --warn: #fbbf24;
+      --warn-weak: #33270b;
+      --err: #f87171;
+      --err-weak: #38151a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 26px 16px 56px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  h1 { font-size: 20px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; }
+  .status-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 10px; font-size: 12.5px; color: var(--muted); background: var(--panel);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: var(--ok-weak); }
+  .badge.ok .dot { background: var(--ok); }
+  .badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: var(--warn-weak); }
+  .badge.warn .dot { background: var(--warn); }
+  .badge.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--line)); background: var(--err-weak); }
+  .badge.err .dot { background: var(--err); }
+  button.small { padding: 5px 9px; font-size: 12.5px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 920px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px; min-width: 0;
+  }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  .field { margin-bottom: 14px; }
+  .field > label, .legend { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+  input[type="text"], input[type="password"], input[type="number"], select, textarea {
+    width: 100%; background: var(--field); color: var(--text);
+    border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px;
+    font: inherit; outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  textarea { resize: vertical; min-height: 118px; }
+  .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 560px) { .row, .row.three { grid-template-columns: minmax(0, 1fr); } }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label {
+    flex: 1; text-align: center; padding: 8px 6px; cursor: pointer;
+    font-size: 13px; color: var(--muted); border-right: 1px solid var(--line); user-select: none;
+  }
+  .seg label:last-of-type { border-right: 0; }
+  .seg input:checked + label { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 9px; padding: 9px 16px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.06); }
+  button.danger { color: var(--err); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  @media (max-width: 560px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .metric { border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: var(--field); min-width: 0; }
+  .metric .k { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .metric .v { font-size: 16px; font-variant-numeric: tabular-nums; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+  audio { width: 100%; margin: 4px 0 12px; }
+  .log-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 14px 0 6px; }
+  pre#log {
+    margin: 0; height: 220px; overflow: auto; background: var(--field); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  }
+  .log-line.err { color: var(--err); }
+  .log-line.ok { color: var(--ok); }
+  .log-line.warn { color: var(--warn); }
+  .log-line.dim { color: var(--muted); }
+  details { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 16px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  details h3 { font-size: 13px; margin: 14px 0 6px; }
+  details p, details li { color: var(--muted); font-size: 12.5px; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  .inline input[type="checkbox"] { width: auto; }
+  .inline label { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .grow { flex: 1; min-width: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>CosyVoice 测试台</h1>
+      <span class="sub">HTTP · SSE · WebSocket</span>
+    </div>
+    <div class="status-line">
+      <span class="badge" id="status"><span class="dot"></span><span id="status-text">检查中…</span></span>
+      <button type="button" class="small" id="refresh">刷新状态</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>合成参数</h2>
+
+      <div class="field">
+        <label for="api-key">API Key（服务端开启鉴权时必填）</label>
+        <div class="inline">
+          <input class="grow" type="password" id="api-key" autocomplete="off" placeholder="Bearer token">
+          <button type="button" class="small" id="toggle-key" aria-label="显示或隐藏 API Key">显示</button>
+        </div>
+        <div class="inline" style="margin-top:7px">
+          <input type="checkbox" id="remember-key">
+          <label for="remember-key">记住本机（localStorage；默认只保存在当前标签页）</label>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="model">model</label>
+          <select id="model"></select>
+        </div>
+        <div class="field">
+          <label for="voice">voice</label>
+          <select id="voice"></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="text">文本</label>
+        <textarea id="text" spellcheck="false">你好，我是你的语音助手，很高兴为你服务。今天想聊点什么？</textarea>
+        <div class="hint">单次上限 20000 字符；SSE/WS 会按句切分并边合成边返回。</div>
+      </div>
+
+      <div class="row three">
+        <div class="field">
+          <label for="format">format</label>
+          <select id="format">
+            <option value="wav">wav</option>
+            <option value="pcm">pcm</option>
+            <option value="mp3">mp3</option>
+            <option value="opus">opus（仅同步）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sample-rate">sample_rate</label>
+          <select id="sample-rate">
+            <option>8000</option>
+            <option>12000</option>
+            <option>16000</option>
+            <option>22050</option>
+            <option selected>24000</option>
+            <option>44100</option>
+            <option>48000</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="volume">volume <span id="volume-val">50</span></label>
+          <input type="range" id="volume" min="0" max="100" step="1" value="50" style="width:100%">
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="legend">调用方式</span>
+        <div class="seg" role="radiogroup" aria-label="调用方式">
+          <input type="radio" name="mode" id="mode-sync" value="sync" checked><label for="mode-sync">同步 HTTP</label>
+          <input type="radio" name="mode" id="mode-sse" value="sse"><label for="mode-sse">SSE 流式</label>
+          <input type="radio" name="mode" id="mode-ws" value="ws"><label for="mode-ws">WebSocket</label>
+        </div>
+        <div class="hint" id="mode-hint">同步：一次返回整段音频；SSE/WS：首包更快，适合长文本。</div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="rate">rate <span id="rate-val">1.00</span></label>
+          <input type="range" id="rate" min="0.5" max="2" step="0.05" value="1" style="width:100%">
+        </div>
+        <div class="field">
+          <label for="pitch">pitch <span id="pitch-val">1.00</span>（流式固定 1.0）</label>
+          <input type="range" id="pitch" min="0.5" max="2" step="0.05" value="1" style="width:100%">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="primary" id="synthesize">开始合成</button>
+        <button type="button" class="danger" id="stop" disabled>停止</button>
+        <button type="button" id="copy-curl">复制 curl</button>
+      </div>
+      <div class="hint" id="run-hint"></div>
+    </section>
+
+    <section class="panel">
+      <h2>结果</h2>
+      <div class="metrics">
+        <div class="metric"><div class="k">首包 TTFF</div><div class="v" id="m-ttff">—</div></div>
+        <div class="metric"><div class="k">总耗时</div><div class="v" id="m-total">—</div></div>
+        <div class="metric"><div class="k">音频</div><div class="v" id="m-bytes">—</div></div>
+        <div class="metric"><div class="k">时长</div><div class="v" id="m-duration">—</div></div>
+      </div>
+
+      <audio id="audio" controls hidden></audio>
+      <div class="inline" style="margin-bottom:12px">
+        <a id="download" href="#" download hidden>下载音频</a>
+        <span class="hint" id="request-id"></span>
+      </div>
+
+      <div class="log-head">
+        <span class="legend" style="margin:0">事件日志</span>
+        <button type="button" class="small" id="clear-log">清空</button>
+      </div>
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+  </main>
+
+  <details>
+    <summary>接入说明与限制</summary>
+    <h3>端点</h3>
+    <p>
+      同步 / SSE：<code>POST /api/v1/services/audio/tts/SpeechSynthesizer</code>；
+      SSE 需加 <code>X-DashScope-SSE: enable</code>。
+      WebSocket：<code>/api-ws/v1/inference</code>，流程为
+      <code>run-task → task-started → continue-task → finish-task → task-finished</code>，
+      音频通过二进制帧返回。
+    </p>
+    <h3>本页如何使用</h3>
+    <p>
+      <code>model</code> 和 <code>voice</code> 是服务端配置里的 key（本页从
+      <code>/readyz</code> 读取），不是百炼别名。API Key 只保存在浏览器里，不会写到服务端。
+    </p>
+    <h3>WebSocket 与鉴权</h3>
+    <p>
+      浏览器的 WebSocket API 不能自定义 <code>Authorization</code> 头。服务端
+      <code>auth.enabled=true</code> 时，本页的 WebSocket 模式会以 4401 关闭，
+      请改用同步/SSE 模式，或在内网验收时临时关闭鉴权。同步/SSE 会正常携带 Bearer key。
+    </p>
+    <h3>格式与播放</h3>
+    <p>
+      PCM 按 16-bit 单声道实时调度播放；wav 流会剥掉首帧的 44 字节头；
+      mp3 流在支持 MediaSource 的浏览器上边收边播，否则收完后整段播放。
+      opus 不能用于流式，只能走同步。流式时 <code>pitch</code> 必须为 1.0。
+    </p>
+  </details>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // Everything is same-origin and relative to the page, so the console also
+  // works when mounted behind a path-prefixing proxy.
+  const pagePath = location.pathname;
+  const base = pagePath.endsWith('/ui/')
+    ? pagePath.slice(0, -4)
+    : pagePath.replace(/\/ui$/, '/');
+  const HTTP_URL = base + 'api/v1/services/audio/tts/SpeechSynthesizer';
+  const HEALTH_URL = base + 'healthz';
+  const READY_URL = base + 'readyz';
+  const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+    + location.host + base + 'api-ws/v1/inference';
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    status: $('status'), statusText: $('status-text'), refresh: $('refresh'),
+    apiKey: $('api-key'), toggleKey: $('toggle-key'), remember: $('remember-key'),
+    model: $('model'), voice: $('voice'), text: $('text'),
+    format: $('format'), sampleRate: $('sample-rate'),
+    volume: $('volume'), volumeVal: $('volume-val'),
+    rate: $('rate'), rateVal: $('rate-val'), pitch: $('pitch'), pitchVal: $('pitch-val'),
+    modeHint: $('mode-hint'), synthesize: $('synthesize'), stop: $('stop'),
+    copyCurl: $('copy-curl'), runHint: $('run-hint'),
+    audio: $('audio'), download: $('download'), requestId: $('request-id'),
+    log: $('log'), clearLog: $('clear-log'),
+    mTtff: $('m-ttff'), mTotal: $('m-total'), mBytes: $('m-bytes'), mDuration: $('m-duration'),
+  };
+
+  // ---------------------------------------------------------------- helpers
+  const now = () => performance.now();
+  const uuid = () => (crypto.randomUUID
+    ? crypto.randomUUID()
+    : 'ui-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
+
+  function fmtBytes(n) {
+    if (!n) return '—';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function fmtMs(ms) {
+    if (ms == null) return '—';
+    return ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(2) + ' s';
+  }
+  function fmtSec(s) {
+    if (!s) return '—';
+    return s.toFixed(2) + ' s';
+  }
+  function b64ToBytes(text) {
+    const bin = atob(text);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function wavBlob(pcm, rate) {
+    const header = new ArrayBuffer(44);
+    const view = new DataView(header);
+    const str = (offset, text) => {
+      for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+    };
+    str(0, 'RIFF');
+    view.setUint32(4, 36 + pcm.length, true);
+    str(8, 'WAVE');
+    str(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    str(36, 'data');
+    view.setUint32(40, pcm.length, true);
+    return new Blob([header, pcm], { type: 'audio/wav' });
+  }
+  const MIME = { pcm: 'audio/L16', wav: 'audio/wav', mp3: 'audio/mpeg', opus: 'audio/opus' };
+
+  function log(message, level) {
+    const line = document.createElement('div');
+    line.className = 'log-line' + (level ? ' ' + level : '');
+    line.textContent = new Date().toLocaleTimeString() + '  ' + message;
+    els.log.append(line);
+    els.log.scrollTop = els.log.scrollHeight;
+    while (els.log.childElementCount > 400) els.log.firstElementChild.remove();
+  }
+
+  function setStatus(kind, text) {
+    els.status.className = 'badge' + (kind ? ' ' + kind : '');
+    els.statusText.textContent = text;
+  }
+
+  // ---------------------------------------------------------------- state
+  let controller = null;
+  let activeSink = null;
+  let activeSocket = null;
+  let playbackUrl = null;
+  const metrics = { started: 0, first: null, bytes: 0, duration: 0, ended: null };
+
+  function resetMetrics() {
+    metrics.started = now();
+    metrics.first = null;
+    metrics.bytes = 0;
+    metrics.duration = 0;
+    metrics.ended = null;
+    renderMetrics();
+  }
+  function renderMetrics() {
+    const ttff = metrics.first == null ? null : metrics.first - metrics.started;
+    const total = metrics.ended == null ? null : metrics.ended - metrics.started;
+    els.mTtff.textContent = fmtMs(ttff);
+    els.mTotal.textContent = fmtMs(total);
+    els.mBytes.textContent = fmtBytes(metrics.bytes);
+    els.mDuration.textContent = fmtSec(metrics.duration);
+  }
+  function markFirst() {
+    if (metrics.first == null) {
+      metrics.first = now();
+      renderMetrics();
+    }
+  }
+  function addAudio(bytes, sampleRate, isPcm) {
+    metrics.bytes += bytes.length;
+    if (isPcm) metrics.duration += bytes.length / 2 / sampleRate;
+    renderMetrics();
+  }
+
+  // ---------------------------------------------------------------- players
+  class PcmSink {
+    constructor(sampleRate, stripHeader) {
+      this.rate = sampleRate;
+      this.strip = stripHeader ? 44 : 0;
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.ctx.resume().catch(() => {});
+      this.next = 0;
+      this.tail = null;
+      this.sources = new Set();
+      this.closed = false;
+    }
+    push(bytes) {
+      if (this.closed) return;
+      let data = bytes;
+      if (this.strip > 0) {
+        if (data.length <= this.strip) { this.strip -= data.length; return; }
+        data = data.subarray(this.strip);
+        this.strip = 0;
+      }
+      if (this.tail) {
+        const merged = new Uint8Array(this.tail.length + data.length);
+        merged.set(this.tail);
+        merged.set(data, this.tail.length);
+        data = merged;
+        this.tail = null;
+      }
+      if (data.length % 2 === 1) {
+        this.tail = data.slice(data.length - 1);
+        data = data.subarray(0, data.length - 1);
+      }
+      if (!data.length) return;
+      const samples = new Int16Array(data.buffer, data.byteOffset, data.length / 2);
+      const buffer = this.ctx.createBuffer(1, samples.length, this.rate);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < samples.length; i += 1) channel[i] = samples[i] / 32768;
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.ctx.destination);
+      const start = Math.max(this.ctx.currentTime + 0.05, this.next);
+      source.start(start);
+      this.next = start + buffer.duration;
+      source.onended = () => this.sources.delete(source);
+      this.sources.add(source);
+    }
+    finish() { return null; }
+    stop() {
+      this.closed = true;
+      for (const source of this.sources) { try { source.stop(); } catch { /* already stopped */ } }
+      this.sources.clear();
+      try { this.ctx.close(); } catch { /* already closed */ }
+    }
+  }
+
+  class Mp3Sink {
+    constructor() {
+      this.queue = [];
+      this.chunks = [];
+      this.sb = null;
+      this.busy = false;
+      this.ended = false;
+      this.closed = false;
+      this.supported = typeof MediaSource !== 'undefined'
+        && MediaSource.isTypeSupported('audio/mpeg');
+      if (!this.supported) return;
+      this.audio = new Audio();
+      this.audio.preload = 'auto';
+      this.ms = new MediaSource();
+      this.audio.src = URL.createObjectURL(this.ms);
+      this.ms.addEventListener('sourceopen', () => {
+        try {
+          this.sb = this.ms.addSourceBuffer('audio/mpeg');
+        } catch (err) {
+          this.supported = false;
+          return;
+        }
+        this.sb.addEventListener('updateend', () => {
+          this.busy = false;
+          this.flush();
+          this.maybeEnd();
+        });
+        this.flush();
+      });
+      this.audio.play().catch(() => {});
+    }
+    push(bytes) {
+      if (this.closed) return;
+      if (!this.supported) { this.chunks.push(bytes); return; }
+      this.queue.push(bytes);
+      this.flush();
+    }
+    flush() {
+      if (!this.sb || this.busy || this.sb.updating || !this.queue.length) return;
+      this.busy = true;
+      try { this.sb.appendBuffer(this.queue.shift()); } catch { this.busy = false; }
+    }
+    maybeEnd() {
+      if (!this.ended || !this.sb || this.busy || this.sb.updating || this.queue.length) return;
+      if (this.ms.readyState === 'open') { try { this.ms.endOfStream(); } catch { /* closed */ } }
+    }
+    finish() {
+      this.ended = true;
+      this.maybeEnd();
+      return this.supported ? null : new Blob(this.chunks, { type: 'audio/mpeg' });
+    }
+    stop() {
+      this.closed = true;
+      if (this.audio) {
+        this.audio.pause();
+        this.audio.removeAttribute('src');
+        try { this.audio.load(); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  function makeSink() {
+    const format = els.format.value;
+    const rate = Number(els.sampleRate.value);
+    if (format === 'pcm') return new PcmSink(rate, false);
+    if (format === 'wav') return new PcmSink(rate, true);
+    if (format === 'mp3') return new Mp3Sink();
+    throw new Error('流式模式不支持 opus，请改用 wav / pcm / mp3');
+  }
+
+  function stopPlayback() {
+    if (activeSink) { activeSink.stop(); activeSink = null; }
+    els.audio.pause();
+    els.audio.removeAttribute('src');
+    if (playbackUrl) { URL.revokeObjectURL(playbackUrl); playbackUrl = null; }
+    els.audio.hidden = true;
+  }
+
+  function playBlob(blob, filename) {
+    stopPlayback();
+    playbackUrl = URL.createObjectURL(blob);
+    els.audio.src = playbackUrl;
+    els.audio.hidden = false;
+    els.audio.play().catch((err) => log('浏览器拦截了自动播放：' + err.message, 'warn'));
+    els.download.href = playbackUrl;
+    els.download.download = filename;
+    els.download.hidden = false;
+  }
+
+  // ---------------------------------------------------------------- request
+  function requestBody() {
+    const input = {
+      text: els.text.value,
+      voice: els.voice.value,
+      format: els.format.value,
+      sample_rate: Number(els.sampleRate.value),
+      volume: Number(els.volume.value),
+      rate: Number(els.rate.value),
+      pitch: Number(els.pitch.value),
+      seed: 0,
+    };
+    return { model: els.model.value, input };
+  }
+
+  function apiHeaders(extra) {
+    const headers = Object.assign({
+      'Content-Type': 'application/json',
+      'X-Request-Id': uuid(),
+    }, extra || {});
+    const key = els.apiKey.value.trim();
+    if (key) headers.Authorization = 'Bearer ' + key;
+    return headers;
+  }
+
+  function readApiError(payload, status) {
+    const message = (payload && (payload.message || payload.code)) || ('HTTP ' + status);
+    const error = new Error(message);
+    error.code = payload && payload.code;
+    error.requestId = payload && payload.request_id;
+    return error;
+  }
+
+  function validate() {
+    if (!els.text.value.trim()) throw new Error('文本不能为空');
+    if (!els.model.value || !els.voice.value) throw new Error('没有可用的 model / voice，请先确认 /readyz');
+    const streaming = document.querySelector('input[name="mode"]:checked').value !== 'sync';
+    if (streaming && els.format.value === 'opus') throw new Error('流式模式不支持 opus');
+    if (streaming && Number(els.pitch.value) !== 1) throw new Error('流式模式 pitch 必须为 1.0');
+  }
+
+  // ---------------------------------------------------------------- sync
+  async function runSync(signal) {
+    const response = await fetch(HTTP_URL, {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify(requestBody()),
+      signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw readApiError(payload, response.status);
+
+    const audio = (payload.output && payload.output.audio) || {};
+    let bytes;
+    if (audio.data) {
+      bytes = b64ToBytes(audio.data);
+    } else if (audio.url) {
+      log('音频以 URL 返回，正在下载…', 'dim');
+      const audioResponse = await fetch(audio.url);
+      bytes = new Uint8Array(await audioResponse.arrayBuffer());
+    } else {
+      throw new Error('响应里没有音频数据');
+    }
+
+    const format = els.format.value;
+    const rate = Number(els.sampleRate.value);
+    const blob = format === 'pcm' ? wavBlob(bytes, rate) : new Blob([bytes], { type: MIME[format] });
+    markFirst();
+    addAudio(bytes, rate, format === 'pcm');
+    playBlob(blob, 'cosyvoice-' + Date.now() + '.' + (format === 'pcm' ? 'wav' : format));
+    finishOk(payload);
+  }
+
+  // ---------------------------------------------------------------- SSE
+  async function runSse(signal) {
+    const sink = makeSink();
+    activeSink = sink;
+    const response = await fetch(HTTP_URL, {
+      method: 'POST',
+      headers: apiHeaders({ 'X-DashScope-SSE': 'enable' }),
+      body: JSON.stringify(requestBody()),
+      signal,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw readApiError(payload, response.status);
+    }
+    if (!response.body) throw new Error('当前浏览器不支持流式响应');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const rate = Number(els.sampleRate.value);
+    const format = els.format.value;
+    let buffer = '';
+    let final = null;
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let split;
+      while ((split = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        for (const line of block.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          const event = JSON.parse(line.slice(5).trim());
+          const output = event.output || {};
+          if (output.type) log('SSE ' + output.type + (output.sentence ? ' #' + output.sentence.index : ''), 'dim');
+          const data = (output.audio && output.audio.data) || '';
+          if (data) {
+            const bytes = b64ToBytes(data);
+            markFirst();
+            addAudio(bytes, rate, format !== 'mp3');
+            sink.push(bytes);
+          }
+          if (output.finish_reason === 'stop') final = event;
+        }
+      }
+    }
+
+    if (!final) throw new Error('SSE 流在 finish_reason=stop 之前结束');
+    const fallback = sink.finish();
+    if (fallback) playBlob(fallback, 'cosyvoice-' + Date.now() + '.mp3');
+    finishOk(final);
+  }
+
+  // ---------------------------------------------------------------- WS
+  function runWs(signal) {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(WS_URL);
+      socket.binaryType = 'arraybuffer';
+      activeSocket = socket;
+      const sink = makeSink();
+      activeSink = sink;
+      const rate = Number(els.sampleRate.value);
+      const format = els.format.value;
+      const taskId = uuid();
+      let settled = false;
+      let taskStarted = false;
+      const timeout = setTimeout(() => fail(new Error('WebSocket 超时（180s）')), 180000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        try { socket.close(); } catch { /* already closed */ }
+        if (activeSocket === socket) activeSocket = null;
+      }
+      function fail(error) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+      function done() {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      }
+      function send(payload) { socket.send(JSON.stringify(payload)); }
+
+      socket.onopen = () => {
+        log('WS 已连接 ' + taskId, 'dim');
+        send({
+          header: { action: 'run-task', task_id: taskId, streaming: 'duplex' },
+          payload: {
+            task_group: 'audio',
+            task: 'tts',
+            function: 'SpeechSynthesizer',
+            model: els.model.value,
+            parameters: {
+              voice: els.voice.value,
+              format,
+              sample_rate: rate,
+              volume: Number(els.volume.value),
+              rate: Number(els.rate.value),
+            },
+            input: {},
+          },
+        });
+      };
+      socket.onerror = () => fail(new Error('WebSocket 连接失败'));
+      socket.onclose = (event) => {
+        if (!settled) {
+          let hint = '';
+          if (event.code === 4401) {
+            hint = '（服务端开启了鉴权：浏览器 WS 无法携带 Authorization，请改用同步/SSE）';
+          }
+          fail(new Error('WebSocket 关闭 code=' + event.code + hint));
+        }
+      };
+      socket.onmessage = (event) => {
+        if (typeof event.data !== 'string') {
+          const bytes = new Uint8Array(event.data);
+          markFirst();
+          addAudio(bytes, rate, format !== 'mp3');
+          sink.push(bytes);
+          return;
+        }
+        const message = JSON.parse(event.data);
+        const header = message.header || {};
+        const name = header.event;
+        if (name === 'task-started') {
+          taskStarted = true;
+          log('WS task-started', 'dim');
+          send({
+            header: { action: 'continue-task', task_id: taskId, streaming: 'duplex' },
+            payload: { input: { text: els.text.value } },
+          });
+          send({
+            header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
+            payload: { input: {} },
+          });
+          return;
+        }
+        if (name === 'result-generated') {
+          const output = (message.payload && message.payload.output) || {};
+          if (output.type) log('WS ' + output.type + (output.sentence ? ' #' + output.sentence.index : ''), 'dim');
+          const data = (output.audio && output.audio.data) || '';
+          if (data) {
+            const bytes = b64ToBytes(data);
+            markFirst();
+            addAudio(bytes, rate, format !== 'mp3');
+            sink.push(bytes);
+          }
+          return;
+        }
+        if (name === 'task-finished') {
+          log('WS task-finished', 'ok');
+          const fallback = sink.finish();
+          if (fallback) playBlob(fallback, 'cosyvoice-' + Date.now() + '.mp3');
+          finishOk({ request_id: header.attributes && header.attributes.request_uuid });
+          done();
+          return;
+        }
+        if (name === 'task-failed') {
+          const error = new Error((header.error_code || 'TaskFailed') + ': ' + (header.error_message || ''));
+          error.code = header.error_code;
+          fail(error);
+        }
+      };
+
+      signal.addEventListener('abort', () => {
+        if (settled) return;
+        log('正在取消任务…', 'warn');
+        try {
+          send({
+            header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
+            payload: { input: { directive: 'cancel' } },
+          });
+        } catch { /* socket already gone */ }
+        setTimeout(() => { try { socket.close(); } catch { /* ignore */ } }, 300);
+        setTimeout(() => fail(new Error('已取消')), 3000);
+      });
+
+      // Some flows can start producing audio before task-started; the timeout
+      // covers a server that never answers at all.
+      void taskStarted;
+    });
+  }
+
+  // ---------------------------------------------------------------- drivers
+  function finishOk(payload) {
+    metrics.ended = now();
+    renderMetrics();
+    if (payload && payload.request_id) {
+      els.requestId.textContent = 'request_id: ' + payload.request_id;
+    }
+    const usage = payload && payload.usage;
+    if (usage && usage.characters) log('计费字符数 ' + usage.characters, 'dim');
+    log('合成完成：' + fmtBytes(metrics.bytes) + '，' + fmtMs(metrics.ended - metrics.started), 'ok');
+  }
+
+  async function synthesize() {
+    if (controller) return;
+    stopPlayback();
+    els.log.replaceChildren();
+    els.requestId.textContent = '';
+    els.download.hidden = true;
+    els.runHint.textContent = '';
+    try {
+      validate();
+    } catch (error) {
+      els.runHint.textContent = error.message;
+      log(error.message, 'err');
+      return;
+    }
+
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    controller = new AbortController();
+    setRunning(true);
+    resetMetrics();
+    log('开始合成：mode=' + mode + ' model=' + els.model.value + ' voice=' + els.voice.value, 'dim');
+
+    try {
+      if (mode === 'sync') await runSync(controller.signal);
+      else if (mode === 'sse') await runSse(controller.signal);
+      else await runWs(controller.signal);
+    } catch (error) {
+      if (error.name === 'AbortError' || error.message === '已取消') {
+        log('已取消', 'warn');
+      } else {
+        const detail = error.code ? error.code + ': ' + error.message : error.message;
+        els.runHint.textContent = detail;
+        log(detail, 'err');
+      }
+      metrics.ended = now();
+      renderMetrics();
+    } finally {
+      controller = null;
+      setRunning(false);
+    }
+  }
+
+  function stop() {
+    if (controller) controller.abort();
+    if (activeSocket) { try { activeSocket.close(); } catch { /* ignore */ } }
+    stopPlayback();
+    setRunning(false);
+    controller = null;
+    log('已停止', 'warn');
+  }
+
+  function setRunning(running) {
+    els.synthesize.disabled = running;
+    els.stop.disabled = !running;
+    els.synthesize.textContent = running ? '合成中…' : '开始合成';
+  }
+
+  // ---------------------------------------------------------------- status
+  function fillSelect(select, values) {
+    const previous = select.value;
+    select.replaceChildren();
+    if (!values.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '（无可用项）';
+      select.append(option);
+      return;
+    }
+    for (const value of values) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.append(option);
+    }
+    if (values.includes(previous)) select.value = previous;
+  }
+
+  async function refreshStatus() {
+    setStatus('warn', '检查中…');
+    try {
+      const health = await fetch(HEALTH_URL, { cache: 'no-store' });
+      const healthBody = await health.json().catch(() => ({}));
+      const ready = await fetch(READY_URL, { cache: 'no-store' });
+      const readyBody = await ready.json().catch(() => ({}));
+      if (ready.ok) {
+        setStatus('ok', 'ready · ' + (readyBody.engine || 'engine'));
+        fillSelect(els.model, readyBody.models || []);
+        fillSelect(els.voice, readyBody.voices || []);
+        log('服务就绪：models=' + (readyBody.models || []).join(',')
+          + ' voices=' + (readyBody.voices || []).join(','), 'ok');
+      } else {
+        setStatus('err', (readyBody.status || 'not ready'));
+        fillSelect(els.model, readyBody.models || []);
+        fillSelect(els.voice, readyBody.voices || []);
+        log('服务未就绪：' + JSON.stringify(readyBody), 'warn');
+      }
+      if (!health.ok && !ready.ok) setStatus('err', '服务不可达');
+      els.statusText.title = 'version ' + (healthBody.version || '?')
+        + ' · inflight ' + (readyBody.inflight == null ? '?' : readyBody.inflight);
+    } catch (error) {
+      setStatus('err', '服务不可达');
+      log('状态检查失败：' + error.message, 'err');
+    }
+  }
+
+  // ---------------------------------------------------------------- curl
+  function curlCommand() {
+    const body = JSON.stringify(requestBody(), null, 2);
+    const url = location.origin + HTTP_URL;
+    return 'curl -sS ' + url + ' \\\n'
+      + '  -H "Authorization: Bearer $TTS_KEY" \\\n'
+      + '  -H "Content-Type: application/json" \\\n'
+      + '  -d ' + JSON.stringify(body);
+  }
+
+  async function copyCurl() {
+    try {
+      await navigator.clipboard.writeText(curlCommand());
+      log('curl 已复制到剪贴板', 'ok');
+    } catch {
+      log('复制失败（浏览器未授权剪贴板）', 'err');
+      log(curlCommand(), 'dim');
+    }
+  }
+
+  // ---------------------------------------------------------------- wiring
+  function syncModeHint() {
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    const format = els.format.value;
+    if (mode !== 'sync' && format === 'opus') {
+      els.modeHint.textContent = '流式模式不支持 opus，请改用 wav / pcm / mp3。';
+    } else if (mode === 'ws') {
+      els.modeHint.textContent = 'WebSocket：需要等待 task-started；音频以二进制帧返回。开启鉴权时浏览器 WS 无法带 key。';
+    } else if (mode === 'sse') {
+      els.modeHint.textContent = 'SSE：按句返回 sentence-begin / sentence-synthesis / sentence-end。';
+    } else {
+      els.modeHint.textContent = '同步：一次返回整段音频；SSE/WS：首包更快，适合长文本。';
+    }
+  }
+
+  function loadKey() {
+    const remembered = localStorage.getItem('cosyvoice.apiKey');
+    const session = sessionStorage.getItem('cosyvoice.apiKey');
+    els.apiKey.value = session || remembered || '';
+    els.remember.checked = Boolean(remembered);
+  }
+
+  function saveKey() {
+    const value = els.apiKey.value.trim();
+    if (els.remember.checked) {
+      if (value) localStorage.setItem('cosyvoice.apiKey', value);
+      else localStorage.removeItem('cosyvoice.apiKey');
+      sessionStorage.removeItem('cosyvoice.apiKey');
+    } else {
+      localStorage.removeItem('cosyvoice.apiKey');
+      if (value) sessionStorage.setItem('cosyvoice.apiKey', value);
+      else sessionStorage.removeItem('cosyvoice.apiKey');
+    }
+  }
+
+  els.refresh.addEventListener('click', refreshStatus);
+  els.synthesize.addEventListener('click', synthesize);
+  els.stop.addEventListener('click', stop);
+  els.copyCurl.addEventListener('click', copyCurl);
+  els.clearLog.addEventListener('click', () => els.log.replaceChildren());
+  els.toggleKey.addEventListener('click', () => {
+    const visible = els.apiKey.type === 'text';
+    els.apiKey.type = visible ? 'password' : 'text';
+    els.toggleKey.textContent = visible ? '显示' : '隐藏';
+  });
+  els.apiKey.addEventListener('input', saveKey);
+  els.remember.addEventListener('change', saveKey);
+  els.volume.addEventListener('input', () => { els.volumeVal.textContent = els.volume.value; });
+  els.rate.addEventListener('input', () => { els.rateVal.textContent = Number(els.rate.value).toFixed(2); });
+  els.pitch.addEventListener('input', () => { els.pitchVal.textContent = Number(els.pitch.value).toFixed(2); });
+  for (const radio of document.querySelectorAll('input[name="mode"]')) {
+    radio.addEventListener('change', syncModeHint);
+  }
+  els.format.addEventListener('change', syncModeHint);
+
+  // Firefox keeps audio:*) off a default <AudioContext> sample rate; using the
+  // requested rate in createBuffer is enough because the browser resamples.
+  loadKey();
+  syncModeHint();
+  refreshStatus();
+})();
+</script>
+</body>
+</html>

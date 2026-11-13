@@ -41,3 +41,7 @@ cosyvoice-runtime = "cosyvoice_runtime.main:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The /ui test console is a single self-contained HTML file.
+[tool.setuptools.package-data]
+cosyvoice_runtime = ["web/*.html"]

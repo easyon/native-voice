@@ -184,6 +184,9 @@ runtime:
     corsOrigins: []
     trustedHosts: []
     docsEnabled: false
+    # Static browser test console at /ui. It authenticates API calls with the
+    # key typed into the page; disable it if only the API should be exposed.
+    uiEnabled: true
     accessLog: true
     proxyHeaders: true
     forwardedAllowIps: 127.0.0.1

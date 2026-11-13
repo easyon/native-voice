@@ -34,6 +34,13 @@ class ServerConfig(_Base):
     trusted_hosts: list[str] = Field(default_factory=list)
     docs_enabled: bool = False
 
+    # Self-contained browser test console at /ui. It is a static page with no
+    # server-side state and no build step, so it is safe to leave enabled on a
+    # GPU acceptance host; set false if the runtime should expose only the API.
+    # The page calls the same public API the business uses (the API key, when
+    # auth is enabled, is typed into the page and never stored server-side).
+    ui_enabled: bool = True
+
     access_log: bool = True
     proxy_headers: bool = True
     forwarded_allow_ips: str = "127.0.0.1"
@@ -247,14 +254,51 @@ class RuntimeConfig(_Base):
         )
 
 
+def _env_bool(name: str) -> bool | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+
+
 def _apply_env_overrides(raw: dict) -> dict:
     """Small set of env overrides for container deployments.
 
     Secrets should come from env/secret mounts, not from the YAML file.
+    The worker settings also let one config file drive every process in a
+    CUDA-MPS pool (see deploy/mps/README.md): the pool sets
+    COSYVOICE_MAX_CONCURRENT / COSYVOICE_TRT_CONCURRENT per worker instead of
+    generating one YAML file per port.
     """
     engine_type = os.getenv("COSYVOICE_ENGINE_TYPE")
     if engine_type:
         raw.setdefault("engine", {})["type"] = engine_type
+
+    cosyvoice = raw.setdefault("engine", {}).setdefault("cosyvoice", {})
+    for env_name, key in (
+        ("COSYVOICE_MAX_CONCURRENT", "max_concurrent"),
+        ("COSYVOICE_TRT_CONCURRENT", "trt_concurrent"),
+    ):
+        value = _env_int(env_name)
+        if value is not None:
+            cosyvoice[key] = value
+    for env_name, key in (
+        ("COSYVOICE_LOAD_VLLM", "load_vllm"),
+        ("COSYVOICE_LOAD_TRT", "load_trt"),
+    ):
+        enabled = _env_bool(env_name)
+        if enabled is not None:
+            cosyvoice[key] = enabled
 
     api_keys = os.getenv("COSYVOICE_API_KEYS")
     if api_keys is not None:
