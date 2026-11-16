@@ -16,6 +16,7 @@ PYTORCH_MODELS = {
     # name -> ModelScope repo id
     "fun-asr-nano": "FunAudioLLM/Fun-ASR-Nano-2512",
     "fsmn-vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+    "punc": "iic/punc_ct-transformer_cn-en-common-vocab471067-large",
     "paraformer": "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
     "sensevoice": "iic/SenseVoiceSmall",
 }
@@ -48,7 +49,7 @@ def _parse_models(value: str) -> list[str]:
     return names
 
 
-PYTORCH_ALIASES = ("fun-asr-nano", "fsmn-vad", "paraformer", "sensevoice")
+PYTORCH_ALIASES = ("fun-asr-nano", "fsmn-vad", "punc", "paraformer", "sensevoice")
 
 
 def main() -> int:
@@ -56,7 +57,7 @@ def main() -> int:
     parser.add_argument(
         "--models",
         default="fun-asr-nano,fsmn-vad",
-        help="comma list: fun-asr-nano, fsmn-vad, paraformer, sensevoice, gguf, all",
+        help="comma list: fun-asr-nano, fsmn-vad, punc, paraformer, sensevoice, gguf, all",
     )
     parser.add_argument("--dest", default="./models", help="output directory")
     parser.add_argument(
@@ -129,6 +130,7 @@ def _pytorch_dir(name: str) -> str:
     return {
         "fun-asr-nano": "Fun-ASR-Nano-2512",
         "fsmn-vad": "fsmn-vad",
+        "punc": "punc",
         "paraformer": "Paraformer",
         "sensevoice": "SenseVoiceSmall",
     }[name]

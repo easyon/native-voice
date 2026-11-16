@@ -7,6 +7,7 @@ import inspect
 import logging
 import re
 import threading
+import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -191,6 +192,14 @@ class FunasrEngine(ASREngine):
                 kwargs["trust_remote_code"] = True
                 if self._cfg.remote_code:
                     kwargs["remote_code"] = self._cfg.remote_code
+            punc_artifact = model.punc_artifact or self._cfg.punc_model
+            if punc_artifact:
+                kwargs["punc_model"] = self._resolve_artifact(punc_artifact)
+                logger.info(
+                    "attaching punctuation model for %s: %s",
+                    name,
+                    kwargs["punc_model"],
+                )
             logger.info(
                 "loading FunASR model %s: artifact=%s device=%s architecture=%s",
                 name,
@@ -415,6 +424,7 @@ class FunasrASRStream(ASRStream):
         self._buffer = bytearray()
         self._last_partial_ms = 0
         self._last_text = ""
+        self._decode_seconds = 0.0
         self._partials_enabled = params.partial_interval_ms > 0
 
     async def feed(self, pcm: bytes) -> list[Partial]:
@@ -440,9 +450,11 @@ class FunasrASRStream(ASRStream):
         window = np.frombuffer(
             bytes(self._buffer), dtype="<i2"
         ).astype(np.float32) / 32768.0
+        started = time.monotonic()
         text, _ = await self._engine._decode(
             self._model_name, self._model, window, self._params
         )
+        self._decode_seconds += time.monotonic() - started
         text = text.strip()
         if not text or text == self._last_text:
             return []
@@ -456,9 +468,11 @@ class FunasrASRStream(ASRStream):
         audio = np.frombuffer(bytes(self._buffer), dtype="<i2").astype(
             np.float32
         ) / 32768.0
+        started = time.monotonic()
         text, words = await self._engine._decode(
             self._model_name, self._model, audio, self._params
         )
+        self._decode_seconds += time.monotonic() - started
         duration_ms = len(self._buffer) // PCM_BYTES_PER_MS
         begin = int(self._params.extra.get("begin_time_ms", 0))
         return Final(
@@ -466,6 +480,7 @@ class FunasrASRStream(ASRStream):
             begin_time=begin,
             end_time=begin + duration_ms,
             words=_shift_words(words, begin),
+            decode_seconds=self._decode_seconds,
         )
 
 
@@ -588,7 +603,13 @@ def _extract_result(results: Any) -> tuple[str, tuple[Word, ...]]:
 
 
 def _clean_text(text: str) -> str:
-    return _TAG_RE.sub("", text).strip()
+    text = _TAG_RE.sub("", text).strip()
+    # Paraformer returns character-level tokens separated by spaces. Removing
+    # only spaces between CJK characters keeps English word boundaries intact.
+    text = re.sub(r"(?<=[㐀-鿿])\s+(?=[㐀-鿿])", "", text)
+    text = re.sub(r"(?<=[㐀-鿿])\s+(?=[，。！？、；：,.!?;:])", "", text)
+    text = re.sub(r"(?<=[，。！？、；：,.!?;:])\s+", "", text)
+    return text.strip()
 
 
 def _shift_words(words: tuple[Word, ...], offset_ms: int) -> tuple[Word, ...]:

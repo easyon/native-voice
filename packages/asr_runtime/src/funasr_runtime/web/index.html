@@ -100,8 +100,8 @@
   button.danger { color: var(--err); }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
-  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
-  @media (max-width: 560px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  @media (max-width: 640px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .metric { border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: var(--field); min-width: 0; }
   .metric .k { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .metric .v { font-size: 16px; font-variant-numeric: tabular-nums; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
@@ -223,6 +223,7 @@
       <div class="metrics">
         <div class="metric"><div class="k">状态</div><div class="v" id="metric-state">空闲</div></div>
         <div class="metric"><div class="k">首个 partial</div><div class="v" id="metric-first">—</div></div>
+        <div class="metric" title="模型解码耗时 / 句段音频时长；不含等待说话的时间"><div class="k">解码 RTF（最近）</div><div class="v" id="metric-rtf">—</div></div>
         <div class="metric"><div class="k">句数</div><div class="v" id="metric-sentences">0</div></div>
         <div class="metric"><div class="k">音频时长</div><div class="v" id="metric-duration">0.0s</div></div>
       </div>
@@ -324,6 +325,7 @@
     : pagePath.replace(/\/ui$/, '/');
   const HEALTH_URL = base + 'healthz';
   const READY_URL = base + 'readyz';
+  const METRICS_URL = base + 'metrics';
   const TRANSCRIBE_URL = base + 'v1/audio/transcriptions';
   const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://')
     + location.host + base + 'api-ws/v1/inference';
@@ -337,6 +339,7 @@
     specialFilter: $('special-filter'),
     startMic: $('start-mic'), stop: $('stop'), clear: $('clear'),
     metricState: $('metric-state'), metricFirst: $('metric-first'),
+    metricRtf: $('metric-rtf'),
     metricSentences: $('metric-sentences'), metricDuration: $('metric-duration'),
     transcript: $('transcript'), copy: $('copy'),
     log: $('log'), clearLog: $('clear-log'),
@@ -489,6 +492,36 @@
     );
   }
 
+  async function refreshRtf() {
+    // RTF is computed server-side from model time / segment audio time. Reading
+    // /metrics keeps the event payload Bailian-compatible. If auth is enabled
+    // the business key can read metrics unless a separate metrics token is set.
+    try {
+      const response = await fetch(METRICS_URL, {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        setMetric(els.metricRtf, '—');
+        return;
+      }
+      const text = await response.text();
+      let latest = null;
+      for (const line of text.split('\n')) {
+        const match = line.match(
+          /^funasr_last_rtf(?:\{[^}]*\})?\s+([0-9.eE+-]+)/
+        );
+        if (match) latest = Number(match[1]);
+      }
+      setMetric(
+        els.metricRtf,
+        latest === null || !Number.isFinite(latest) ? '—' : latest.toFixed(3)
+      );
+    } catch (_) {
+      setMetric(els.metricRtf, '—');
+    }
+  }
+
   function handleSentence(sentence, usage) {
     if (!sentence) return;
     if (sentence.heartbeat) {
@@ -522,6 +555,7 @@
         ': ' + (sentence.text || ''),
         'ok'
       );
+      refreshRtf();
     } else {
       state.partial = sentence.text || '';
       state.partialId = sentence.sentence_id;
@@ -561,6 +595,7 @@
     if (event === 'task-finished') {
       log('task-finished', 'ok');
       finishConnection(true);
+      refreshRtf();
       return true;
     }
     if (event === 'task-failed') {
@@ -962,6 +997,7 @@
     state.firstPartial = null;
     state.partial = '';
     state.partialId = null;
+    setMetric(els.metricRtf, '—');
     renderTranscript();
     updateMetrics();
   }

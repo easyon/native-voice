@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import wave
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -264,6 +265,7 @@ class LlamaCppASRStream(ASRStream):
         self._params = params
         self._buffer = bytearray()
         self._last_partial_ms = 0
+        self._decode_seconds = 0.0
         self._partials_enabled = params.partial_interval_ms > 0
 
     async def feed(self, pcm: bytes) -> list[Partial]:
@@ -285,6 +287,7 @@ class LlamaCppASRStream(ASRStream):
             # partials after the window; the final decodes the full segment.
             return []
         window = bytes(self._buffer)
+        started = time.monotonic()
         result = await self._engine._run(
             self._engine._transcribe_sync,
             self._model,
@@ -292,6 +295,7 @@ class LlamaCppASRStream(ASRStream):
             self._params,
             False,
         )
+        self._decode_seconds += time.monotonic() - started
         text = result.text.strip()
         if not text:
             return []
@@ -301,6 +305,7 @@ class LlamaCppASRStream(ASRStream):
     async def finish(self) -> Final | None:
         if not self._buffer:
             return None
+        started = time.monotonic()
         result = await self._engine._run(
             self._engine._transcribe_sync,
             self._model,
@@ -308,9 +313,15 @@ class LlamaCppASRStream(ASRStream):
             self._params,
             False,
         )
+        self._decode_seconds += time.monotonic() - started
         begin = int(self._params.extra.get("begin_time_ms", 0))
         end = begin + len(self._buffer) // PCM_BYTES_PER_MS
-        return Final(text=result.text.strip(), begin_time=begin, end_time=end)
+        return Final(
+            text=result.text.strip(),
+            begin_time=begin,
+            end_time=end,
+            decode_seconds=self._decode_seconds,
+        )
 
 
 def _write_temp_wav(pcm: bytes) -> str:

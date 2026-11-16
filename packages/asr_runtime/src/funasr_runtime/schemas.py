@@ -26,6 +26,8 @@ class Final:
     begin_time: int
     end_time: int
     words: tuple[Word, ...] = ()
+    # Total model time spent on this segment, including interim partial decodes.
+    decode_seconds: float = 0.0
 
 
 @dataclass(slots=True)

@@ -49,9 +49,14 @@ engine:
 models:
   fun-asr-realtime:
     engine: funasr
-    architecture: sensevoice
-    artifact: ./models/SenseVoiceSmall
+    # architecture: sensevoice
+    # artifact: ./models/SenseVoiceSmall
+    architecture: paraformer
+    artifact: ./models/Paraformer
     vad_artifact: ./models/fsmn-vad
+    # Paraformer raw output has no punctuation; ct-punc adds it. SenseVoice
+    # tends to punctuate itself, so this line can be removed for SenseVoice.
+    punc_artifact: ./models/punc
     language: auto
     itn: true
 

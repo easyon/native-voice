@@ -6,7 +6,7 @@ import types
 
 import pytest
 from cosyvoice_common.errors import APIError
-from funasr_runtime.engines.funasr import FunasrEngine
+from funasr_runtime.engines.funasr import FunasrEngine, _clean_text
 from funasr_runtime.schemas import StreamParams
 from funasr_runtime.settings import (
     EngineConfig,
@@ -304,3 +304,22 @@ async def test_transcribe_returns_segments(fake_funasr, tmp_path) -> None:
         assert transcript.segments
     finally:
         await engine.shutdown()
+
+
+async def test_punctuation_model_is_attached(fake_funasr, tmp_path) -> None:
+    config, model, models = _config(tmp_path)
+    punc = tmp_path / "punc"
+    punc.mkdir()
+    model.punc_artifact = str(punc)
+    engine = FunasrEngine(config, models)
+    await engine.startup()
+    try:
+        assert fake_funasr.instances[0].kwargs["punc_model"] == str(punc)
+    finally:
+        await engine.shutdown()
+
+
+def test_clean_text_removes_cjk_spaces_but_keeps_english_words() -> None:
+    assert _clean_text("正 是 因 为 我 们") == "正是因为我们"
+    assert _clean_text("hello world 你 好") == "hello world 你好"
+

@@ -422,12 +422,15 @@ class AsrWSSession:
         task.last_emit_at = time.monotonic()
         self.metrics.sentence()
         duration_s = max(0.001, (end - begin) / 1000.0)
+        decode_s = float(getattr(final, "decode_seconds", 0.0) or 0.0)
+        if decode_s > 0:
+            rtf = decode_s / duration_s
+            self.metrics.rtf(rtf, model=task.model_key)
+            # A gauge keeps the latest value easy to scrape for the browser
+            # console; the histogram above is for dashboards/quantiles.
+            self.metrics.set_gauge("funasr_last_rtf", rtf, model=task.model_key)
         self.metrics.final_latency(
             time.monotonic() - task.segment_started_at,
-            model=task.model_key,
-        )
-        self.metrics.rtf(
-            (time.monotonic() - task.segment_started_at) / duration_s,
             model=task.model_key,
         )
 

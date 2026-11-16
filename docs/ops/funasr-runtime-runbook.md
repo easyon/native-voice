@@ -24,7 +24,8 @@
 | `funasr_errors_total{code}` | 按错误码定位：`Throttling` 扩容、`Timeout` 查模型/进程、`ServiceUnavailable` 查加载 |
 | `funasr_first_partial_seconds` | 首 partial 延迟；p95 超出目标时降低 `partial_interval_ms` 或扩容 |
 | `funasr_final_latency_seconds` | 句末解码延迟；接近静音阈值说明引擎排队 |
-| `funasr_rtf` | 解码耗时 / 音频时长；>1 表示单流跟不上实时 |
+| `funasr_rtf` | 每句模型解码耗时 / 音频时长；>1 表示单流跟不上实时 |
+| `funasr_last_rtf` | 最近一句的 RTF，浏览器测试台直接读取该 gauge |
 | `funasr_audio_seconds_total` | 计费/容量口径 |
 | `funasr_gpu_*` | `nvidia-smi` 采样的显存/利用率；共享 GPU 时仅供参考 |
 

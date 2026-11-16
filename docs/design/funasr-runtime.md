@@ -91,7 +91,8 @@ task-started
 - partial：每 `partial_interval_ms` 对当前句段做一次解码，句长上限 `partial_window_s`；超过窗口后停止发 partial，句末仍用完整段重新解码并返回 final。
 - 离线架构（Nano / Paraformer / SenseVoice）没有逐 chunk cache；partial 是重识别。
 - 参数透传：`language` / `hotwords` / `hotword` / `use_itn` / `itn` / `sentence_timestamp` 按架构设置，并按 `inspect.signature` 过滤未知项。
-- 文本清洗：去掉 `<|...|>` 标签；SenseVoice 的语种/情感/事件标签不进入正文。
+- 文本清洗：去掉 `<|...|>` 标签；去掉中文 token 之间由 Paraformer 产生的空格；SenseVoice 的语种/情感/事件标签不进入正文。
+- 标点：Paraformer 原始输出没有标点，需要 `punc_artifact` / `engine.funasr.punc_model` 挂载 `ct-punc`；SenseVoice/Nano 通常自带标点。GPU 测试台和 `/metrics` 的 `funasr_last_rtf` 显示最近一句的解码 RTF（模型解码耗时 / 音频时长）。
 - 时间戳：Paraformer 请求 `sentence_timestamp=True` 并映射 `timestamp`；其他模型不伪造，`words=[]`。
 
 ### 4.2 llamacpp（CPU/边缘、离线）

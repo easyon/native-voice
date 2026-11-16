@@ -101,6 +101,9 @@ class FunasrEngineConfig(_Base):
     # Empty means "use models.<key>.vad_artifact", then the built-in
     # ``fsmn-vad`` model id when downloads are enabled.
     vad_model: str = ""
+    # Optional punctuation model (e.g. ct-punc). Paraformer's raw ASR output
+    # has no punctuation; SenseVoice/Nano may already punctuate.
+    punc_model: str = ""
     partial_interval_ms: int = Field(default=960, ge=0)
     partial_window_s: float = Field(default=8.0, ge=0.0)
     warmup: bool = True
@@ -136,6 +139,8 @@ class ModelConfig(_Base):
     artifact: str = ""
     encoder_artifact: str = ""
     vad_artifact: str = ""
+    # Optional punctuation model; paraformer usually needs one.
+    punc_artifact: str = ""
     language: str = "auto"
     hotwords: str = ""
     itn: bool = True

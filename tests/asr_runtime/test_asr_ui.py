@@ -14,6 +14,8 @@ def test_ui_is_served(client: TestClient) -> None:
     assert "v1/audio/transcriptions" in response.text
     assert "sentence_begin id=" in response.text
     assert "sentence_end id=" in response.text
+    assert "metric-rtf" in response.text
+    assert "funasr_last_rtf" in response.text
 
 
 def test_ui_can_be_disabled(config) -> None:

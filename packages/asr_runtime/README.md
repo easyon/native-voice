@@ -53,6 +53,13 @@ python scripts/download_funasr_models.py --models sensevoice,fsmn-vad --dest ./m
 FUNASR_RUNTIME_CONFIG=configs/funasr.cpu.yaml funasr-runtime
 ```
 
+Paraformer 原始输出不带标点，需要额外挂载 `ct-punc`：
+
+```bash
+python scripts/download_funasr_models.py --models paraformer,fsmn-vad,punc --dest ./models
+# configs/funasr.cpu.yaml 中设置 punc_artifact: ./models/punc
+```
+
 `configs/funasr.gpu.yaml` 使用 `/models` 下的 Fun-ASR-Nano + fsmn-vad；`configs/funasr.cpu.yaml` 使用 SenseVoiceSmall + fsmn-vad 的纯 CPU 组合；`configs/funasr.llamacpp.yaml` 使用 GGUF 二进制与文件路径。改 `models.<key>.artifact` / `vad_artifact` 即可切换。
 
 ## 协议要点
