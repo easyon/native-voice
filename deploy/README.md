@@ -1,6 +1,6 @@
 # 部署
 
-运行时只安装 `cosyvoice-common` + `cosyvoice-runtime`。训练、数据、评测包不会进入运行时镜像。ASR 运行时（`funasr-runtime`）是独立包与独立镜像，见 [0.2](#02-funasr-运行时独立服务)。
+运行时只安装 `cosyvoice-common` + `tts-runtime`。训练、数据、评测包不会进入运行时镜像。ASR 运行时（`funasr-runtime`）是独立包与独立镜像，见 [0.2](#02-funasr-运行时独立服务)。
 
 ## 0.2 FunASR 运行时（独立服务）
 
@@ -62,7 +62,7 @@ bash deploy/bootstrap-gpu.sh
 - `PROMPT_TEXT` 必须与 `PROMPT_WAV` 的内容一致，且包含 `<|endofprompt|>`；不一致会明显掉音色相似度。
 - 脚本生成的是 `configs/runtime.local.gpu.yaml`，模板始终是受维护的 `configs/runtime.gpu.yaml`，不要手改生成物。
 - 模型下载单独跑也可以：`python scripts/fetch_model.py --dest /data/models/... --list-only` 先看文件清单（默认 ModelScope），去掉 `--list-only` 再下。断点续跑安全：已存在的完整文件跳过，sha256 不匹配会删掉重下。
-- 已经装好环境的机器，跳过准备工作直接起服务：`COSYVOICE_PYTHON=/data/venvs/cosyvoice/bin/python COSYVOICE_REPO=/data/CosyVoice . scripts/gpu_env.sh && /data/venvs/cosyvoice/bin/cosyvoice-runtime -c configs/runtime.gpu.yaml`。`gpu_env.sh` 会按 `COSYVOICE_PYTHON`（缺省 `python`）定位 torch 的 nvidia 库拼好 `LD_LIBRARY_PATH`（onnxruntime-gpu 不报 `libcublasLt.so.12` 的前提），并把 `COSYVOICE_REPO` 和 `third_party/Matcha-TTS` 加进 `PYTHONPATH`（否则报 `No module named 'cosyvoice'`）。
+- 已经装好环境的机器，跳过准备工作直接起服务：`COSYVOICE_PYTHON=/data/venvs/cosyvoice/bin/python COSYVOICE_REPO=/data/CosyVoice . scripts/gpu_env.sh && /data/venvs/cosyvoice/bin/tts-runtime -c configs/runtime.gpu.yaml`。`gpu_env.sh` 会按 `COSYVOICE_PYTHON`（缺省 `python`）定位 torch 的 nvidia 库拼好 `LD_LIBRARY_PATH`（onnxruntime-gpu 不报 `libcublasLt.so.12` 的前提），并把 `COSYVOICE_REPO` 和 `third_party/Matcha-TTS` 加进 `PYTHONPATH`（否则报 `No module named 'cosyvoice'`）。
 - 完全离线/内网机器可以先用 0.6 打离线包，或走下面的镜像路径。
 - 国内网络可以把 PyPI 和 torch 都换成国内源（`PIP_INDEX_URL` pip 会自动识别，torch 用 `TORCH_INDEX_URL`）：
 
@@ -92,7 +92,7 @@ A100 单卡实测（同一段文本、同一 checkpoint）：
 
 ## 0.2 加速栈：vLLM + TensorRT（默认关闭）
 
-单进程里上游把 LLM 全部投到同一个 CUDA stream，线程并发只能到约 1.5× 实时（A100 实测）。要真正提高单卡吞吐，只能做批处理；这里用上游支持的 vLLM 连续 batching 和 TensorRT Flow，不自研调度器（原因见 [技术方案 8.5.10](../docs/design/cosyvoice-runtime.md#8510-加速栈vllm-连续批处理--tensorrt-flow当前最优路径)）。
+单进程里上游把 LLM 全部投到同一个 CUDA stream，线程并发只能到约 1.5× 实时（A100 实测）。要真正提高单卡吞吐，只能做批处理；这里用上游支持的 vLLM 连续 batching 和 TensorRT Flow，不自研调度器（原因见 [技术方案 8.5.10](../docs/design/tts-runtime.md#8510-加速栈vllm-连续批处理--tensorrt-flow当前最优路径)）。
 
 ```bash
 bash deploy/bootstrap-gpu.sh --vllm              # 装 vLLM + 开 load_vllm
@@ -119,7 +119,7 @@ python scripts/gpu_smoke.py ... --vllm --concurrency 4 --tasks 16
 python scripts/gpu_smoke.py ... --trt --trt-concurrent 2 --concurrency 4 --tasks 16
 ```
 
-通过标准：`aggregate_audio_per_wall_s` 明显高于基线（fp32 c=4 约 1.47× 实时），TTFF 不退化，音频抽检无串音。已知约束：`fp16` 不要和 TRT 叠加；plan 与 GPU 架构绑定（上游文件名固定为 `flow.decoder.estimator.fp32.mygpu.plan`，换卡后从文件名看不出差异，必须删掉重编）；vLLM 会把 `transformers` 升到 4.57.1，回滚时依赖环境也要一起回退。启用/回滚与故障表见 [运维手册 7.3](../docs/ops/cosyvoice-runtime-runbook.md#73-加速栈vllm--tensorrt启用与回滚)。
+通过标准：`aggregate_audio_per_wall_s` 明显高于基线（fp32 c=4 约 1.47× 实时），TTFF 不退化，音频抽检无串音。已知约束：`fp16` 不要和 TRT 叠加；plan 与 GPU 架构绑定（上游文件名固定为 `flow.decoder.estimator.fp32.mygpu.plan`，换卡后从文件名看不出差异，必须删掉重编）；vLLM 会把 `transformers` 升到 4.57.1，回滚时依赖环境也要一起回退。启用/回滚与故障表见 [运维手册 7.3](../docs/ops/tts-runtime-runbook.md#73-加速栈vllm--tensorrt启用与回滚)。
 
 ### L40S 48GB 起手配置
 
@@ -134,7 +134,7 @@ bash deploy/bootstrap-gpu.sh --vllm --trt --no-start
 - 48GB 对这个 0.5B 栈不是瓶颈（见 0.3：整机 RSS 约 3.4GB；vLLM 的 KV cache 也很小）。并发上限由首包/RTF SLO 决定，不由显存决定。`bootstrap` 只做显存下限检查（加速栈 <16 GiB 时告警），不做自动调参。
 - 调参顺序：先固定 `trt_concurrent=2`，用 `scripts/loadtest.py` 或 `gpu_smoke.py` 跑 c=2/4/6/8，取“首包 p95 达标且聚合倍率仍在上升”的最大并发；再按 flow 是否成为瓶颈把 `trt_concurrent` 调到 2–4。
 - `gpu_smoke.py` 的并发模式会同时输出 `gpu_util_avg_pct` / `gpu_util_max_pct`（nvidia-smi 采样）：**利用率低但请求在排队**说明 GPU 在等串行阶段（提高 `trt_concurrent`、确认 vLLM 已生效，或检查 CPU 预处理）；**利用率接近满载而聚合倍率不再涨**说明算力到顶，再加并发只会抬高首包，应加卡而不是加线程。
-- 线上不用手工跑 nvidia-smi：运行时自带 `cosyvoice_gpu_utilization_ratio` 等指标（默认 5s 采样，`metrics.gpu_sampling_interval_s: 0` 可关），判读规则与上面一致；单卡副本也可以拿它做 HPA 的辅助信号（见[运维手册 4](../docs/ops/cosyvoice-runtime-runbook.md#4-容量与扩缩容)）。
+- 线上不用手工跑 nvidia-smi：运行时自带 `cosyvoice_gpu_utilization_ratio` 等指标（默认 5s 采样，`metrics.gpu_sampling_interval_s: 0` 可关），判读规则与上面一致；单卡副本也可以拿它做 HPA 的辅助信号（见[运维手册 4](../docs/ops/tts-runtime-runbook.md#4-容量与扩缩容)）。
 - `fp16` 仍按 0.1 的结论默认关闭，先实测；`tf32` 保持开启，Ada 上是免费收益。L40S 的 FP8 上游没有适配，不要开。
 
 ## 0.3 不支持 bf16 的卡（sm75，已在选型中排除）
@@ -304,7 +304,7 @@ bash deploy/bootstrap-gpu.sh --reuse-python /opt/conda/bin/python \
 CPU 网关镜像（mock 引擎或远程模型服务）：
 
 ```bash
-docker build -t cosyvoice-runtime:0.1.0 .
+docker build -t tts-runtime:0.1.0 .
 ```
 
 进程内 CosyVoice GPU 镜像：
@@ -312,10 +312,10 @@ docker build -t cosyvoice-runtime:0.1.0 .
 ```bash
 docker build \
   --target gpu \
-  -t cosyvoice-runtime:0.1.0-gpu .
+  -t tts-runtime:0.1.0-gpu .
 ```
 
-GPU 镜像基于 `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04`，torch 2.10.0+cu128 来自 conda，Python 依赖由 `requirements-runtime.lock` / `requirements-cosyvoice.lock` 锁定。镜像不包含模型权重，也不包含 CosyVoice 上游代码；两者都在运行时只读挂载。构建、启动、环境变量与已知坑见 [docs/ops/cosyvoice-runtime-image.md](../docs/ops/cosyvoice-runtime-image.md)。
+GPU 镜像基于 `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04`，torch 2.10.0+cu128 来自 conda，Python 依赖由 `requirements-runtime.lock` / `requirements-cosyvoice.lock` 锁定。镜像不包含模型权重，也不包含 CosyVoice 上游代码；两者都在运行时只读挂载。构建、启动、环境变量与已知坑见 [docs/ops/tts-runtime-image.md](../docs/ops/tts-runtime-image.md)。
 
 GPU 镜像还需要宿主机/集群提供 CUDA 与 NVIDIA Container Toolkit；模型文件通过只读卷或对象存储挂载，不要打进镜像。
 
@@ -326,7 +326,7 @@ docker run --rm -p 8000:8000 \
   -e COSYVOICE_API_KEYS='replace-with-a-long-random-key' \
   -e COSYVOICE_LOG_FORMAT=json \
   -v "$PWD/data/audio:/app/data/audio" \
-  cosyvoice-runtime:0.1.0
+  tts-runtime:0.1.0
 ```
 
 生产不要使用 `environment: dev`（`configs/runtime.yaml` 默认是 `dev`，仅为本地联调）。Helm chart 会把 `COSYVOICE_ENVIRONMENT` 设为 `prod`。
@@ -334,25 +334,25 @@ docker run --rm -p 8000:8000 \
 ## 3. Helm
 
 ```bash
-helm upgrade --install cosyvoice deploy/helm/cosyvoice-runtime \
+helm upgrade --install cosyvoice deploy/helm/tts-runtime \
   --namespace cosyvoice --create-namespace \
   --set runtime.auth.apiKeys='replace-with-a-long-random-key' \
   --set runtime.auth.metricsToken='replace-with-a-metrics-token' \
-  --set image.repository=registry.example.com/cosyvoice-runtime \
+  --set image.repository=registry.example.com/tts-runtime \
   --set image.tag=0.1.0
 ```
 
 更推荐把 Secret 放在 values 之外：
 
 ```bash
-kubectl -n cosyvoice create secret generic cosyvoice-runtime-auth \
+kubectl -n cosyvoice create secret generic tts-runtime-auth \
   --from-literal=api-keys='replace-with-a-long-random-key' \
   --from-literal=metrics-token='replace-with-a-metrics-token' \
   --from-literal=storage-signing-secret='replace-with-a-signing-secret'
 
-helm upgrade --install cosyvoice deploy/helm/cosyvoice-runtime \
+helm upgrade --install cosyvoice deploy/helm/tts-runtime \
   --namespace cosyvoice --create-namespace \
-  --set runtime.auth.existingSecret=cosyvoice-runtime-auth
+  --set runtime.auth.existingSecret=tts-runtime-auth
 ```
 
 `runtime.auth.apiKeys` 或 `existingSecret` 必须配置；没有 key 时 chart 会拒绝渲染，避免误部署一个无鉴权服务。

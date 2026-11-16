@@ -1,17 +1,17 @@
 # syntax=docker/dockerfile:1.7
 #
-# Multi-stage image for cosyvoice-runtime.
+# Multi-stage image for tts-runtime.
 #
 # Default target (last stage) is the CPU gateway, so the existing
-# `docker build -t cosyvoice-runtime .` workflow and CI keep working.
+# `docker build -t tts-runtime .` workflow and CI keep working.
 # Build the in-process GPU image explicitly:
 #
-#   docker build --target gpu -t cosyvoice-runtime:0.1.0-gpu .
+#   docker build --target gpu -t tts-runtime:0.1.0-gpu .
 #   docker build --target gpu --build-arg WITH_ACCEL=1 \
-#     -t cosyvoice-runtime:0.1.0-gpu-accel .   # + vLLM / TensorRT
+#     -t tts-runtime:0.1.0-gpu-accel .   # + vLLM / TensorRT
 #
 # The accelerator stack is off by default: it is the vendor-supported path for
-# single-GPU batching (docs/design/cosyvoice-runtime.md 8.5.10) but must be
+# single-GPU batching (docs/design/tts-runtime.md 8.5.10) but must be
 # validated on the target GPU, and it changes transformers (4.51.3 -> 4.57.1).
 # The image still ships no model weights or generated artifacts; prebuild
 # <artifact>/vllm and the TensorRT plan, because models are mounted read-only.
@@ -37,10 +37,10 @@ FROM ${PYTHON_IMAGE} AS wheelbuilder
 
 WORKDIR /src
 COPY packages/common ./packages/common
-COPY packages/runtime ./packages/runtime
+COPY packages/tts_runtime ./packages/tts_runtime
 
 RUN python -m pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
-        ./packages/common ./packages/runtime
+        ./packages/common ./packages/tts_runtime
 
 # ---------------------------------------------------------------------------
 # GPU: conda torch 2.10.0 + CUDA 12.8, then a venv with the locked pip deps.
@@ -199,7 +199,7 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=600s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(os.environ.get('COSYVOICE_HEALTHCHECK_URL', 'http://127.0.0.1:8000/readyz'), timeout=4)"
 
 ENTRYPOINT ["/usr/local/bin/cosyvoice-entrypoint"]
-CMD ["cosyvoice-runtime"]
+CMD ["tts-runtime"]
 
 # ---------------------------------------------------------------------------
 # CPU gateway image (default target). No torch, no CUDA, mock engine or a
@@ -249,4 +249,4 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(os.environ.get('COSYVOICE_HEALTHCHECK_URL', 'http://127.0.0.1:8000/readyz'), timeout=2)"
 
 ENTRYPOINT ["/usr/local/bin/cosyvoice-entrypoint"]
-CMD ["cosyvoice-runtime"]
+CMD ["tts-runtime"]

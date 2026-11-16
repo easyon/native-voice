@@ -45,7 +45,7 @@
 # sdist-only packages into wheels, so a bundle normally needs no compiler on
 # the target; if that build failed, the target needs Python headers and g++
 # (bootstrap installs them via apt). For a fully hermetic host use the Docker
-# image (docs/ops/cosyvoice-runtime-image.md).
+# image (docs/ops/tts-runtime-image.md).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -153,12 +153,12 @@ extract_venv() {
           sed -i "s|$source|$target|g" "$f"
         done
   fi
-  # Editable installs of packages/{common,runtime} still point at the bundling
+  # Editable installs of packages/{common,tts_runtime} still point at the bundling
   # host's checkout. --no-deps keeps this offline and resolver-free.
-  log "re-pointing packages/common and packages/runtime at $ROOT"
+  log "re-pointing packages/common and packages/tts_runtime at $ROOT"
   PIP_NO_INDEX=1 "$target/bin/python" -m pip install -q --disable-pip-version-check \
     --no-deps --no-build-isolation \
-    -e "$ROOT/packages/common" -e "$ROOT/packages/runtime" \
+    -e "$ROOT/packages/common" -e "$ROOT/packages/tts_runtime" \
     || die "could not install this checkout into the extracted venv (is setuptools present in the base interpreter?)"
 }
 
@@ -362,7 +362,7 @@ if [ "$NO_INSTALL" = "1" ]; then
 import importlib.util
 
 required = [
-    "cosyvoice_runtime", "torch", "torchaudio", "transformers", "onnxruntime",
+    "tts_runtime", "torch", "torchaudio", "transformers", "onnxruntime",
     "librosa", "soundfile", "fastapi", "uvicorn", "yaml", "numpy",
 ]
 missing = [name for name in required if importlib.util.find_spec(name) is None]
@@ -372,7 +372,7 @@ print("[bootstrap] environment imports verified")
 PYCHECK
 else
 log "installing runtime packages"
-"$PY" -m pip install -q -e "$ROOT/packages/common" -e "$ROOT/packages/runtime"
+"$PY" -m pip install -q -e "$ROOT/packages/common" -e "$ROOT/packages/tts_runtime"
 # whisper's sdist needs pkg_resources at build time; setuptools>=81 dropped it.
 # Install it un-isolated against a pinned setuptools instead of letting pip
 # resolve a build environment that cannot build it. See requirements-cosyvoice.lock.
@@ -408,12 +408,12 @@ when_accel
 # The console script lives in the interpreter's scripts dir; a reused conda
 # env and a venv put it in different places.
 SCRIPTS=$("$PY" -c 'import sysconfig; print(sysconfig.get_path("scripts"))')
-RUNTIME_BIN="$SCRIPTS/cosyvoice-runtime"
+RUNTIME_BIN="$SCRIPTS/tts-runtime"
 if [ ! -x "$RUNTIME_BIN" ]; then
-  RUNTIME_BIN=$(command -v cosyvoice-runtime 2>/dev/null || true)
+  RUNTIME_BIN=$(command -v tts-runtime 2>/dev/null || true)
 fi
 if [ -z "$RUNTIME_BIN" ] || [ ! -x "$RUNTIME_BIN" ]; then
-  die "cosyvoice-runtime entry point not found near $PY; reinstall with pip install -e packages/runtime"
+  die "tts-runtime entry point not found near $PY; reinstall with pip install -e packages/tts_runtime"
 fi
 log "runtime entry point: $RUNTIME_BIN"
 

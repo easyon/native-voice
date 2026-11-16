@@ -24,13 +24,13 @@
 #   torch==2.10.0+cu128  torchaudio==2.10.0+cu128  torchvision==0.25.0+cu128
 #   triton==3.6.0  numpy==1.26.4  packaging==25.0  setuptools>=80,<81
 #
-# packages/runtime asserts the torch/torchaudio versions at import time.
+# packages/tts_runtime asserts the torch/torchaudio versions at import time.
 #
 # Excluded on purpose: pip, setuptools, wheel, uv (tooling), and the two
-# editable packages (cosyvoice-common, cosyvoice-runtime) that the image
+# editable packages (cosyvoice-common, tts-runtime) that the image
 # installs from repo/packages. modelscope is absent: upstream imports it at
 # module level but only calls snapshot_download for repo ids, and
-# cosyvoice_runtime.engines.cosyvoice_compat.install_modelscope_stub() satisfies
+# tts_runtime.engines.cosyvoice_compat.install_modelscope_stub() satisfies
 # the import for local checkpoints.
 #
 # Reproduce/refresh: on a validated host run

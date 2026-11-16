@@ -1,7 +1,7 @@
 services:
-  cosyvoice-runtime:
+  tts-runtime:
     build: .
-    image: cosyvoice-runtime:dev
+    image: tts-runtime:dev
     init: true
     ports:
       - "8000:8000"

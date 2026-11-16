@@ -1,6 +1,0 @@
-apiVersion: v2
-name: cosyvoice-runtime
-description: Bailian-compatible CosyVoice HTTP/SSE/WebSocket runtime
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

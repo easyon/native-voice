@@ -3,9 +3,9 @@
 # This is the configuration used for real-model validation and capacity
 # measurement. For 100/1000 concurrent callers, keep this engine behind a CPU
 # gateway (or run one replica per GPU) as described in
-# docs/design/cosyvoice-runtime.md; max_concurrent_streams here is the number
+# docs/design/tts-runtime.md; max_concurrent_streams here is the number
 # of callers this GPU replica can serve at once.
-service_name: cosyvoice-runtime
+service_name: tts-runtime
 version: 0.1.0
 environment: prod
 

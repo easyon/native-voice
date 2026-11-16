@@ -5,7 +5,7 @@
 设计文档：
 
 - [总体方案](docs/design/cosyvoice-overview.md)
-- [运行时方案](docs/design/cosyvoice-runtime.md)
+- [运行时方案](docs/design/tts-runtime.md)
 - [训练方案](docs/design/cosyvoice-training.md)
 
 ## 工程分布
@@ -15,27 +15,27 @@
 ```text
 packages/
   common/       cosyvoice-common       共享音频/文本/错误模型，不依赖其他包
-  runtime/      cosyvoice-runtime      在线 TTS 服务，只依赖 common + FastAPI，不装 torch
+  tts_runtime/  tts-runtime            在线 TTS 服务，只依赖 common + FastAPI，不装 torch
   asr_runtime/  funasr-runtime         在线 ASR 服务（百炼 Fun-ASR Realtime 兼容）
   data/         cosyvoice-data         清洗、切分、manifest
-  training/     cosyvoice-training     SFT / Flow / HiFiGAN，不依赖 runtime
+  training/     cosyvoice-training     SFT / Flow / HiFiGAN，不依赖 tts_runtime
   evaluation/   cosyvoice-evaluation   客观指标、MOS、回归门禁
 configs/        runtime.yaml / funasr*.yaml；后续 training/、evaluation/
 scripts/        开发与运维脚本
-tests/          common/runtime/asr_runtime/data/training/evaluation
+tests/          common/tts_runtime/asr_runtime/data/training/evaluation
 ```
 
 依赖方向：
 
 ```text
-runtime ─────┐
+tts_runtime ─┐
 asr_runtime ─┼──▶ common
 data ────────┤
 training ────┘
 evaluation ──▶ common
 ```
 
-`common` 不依赖任何其他包，`runtime`、`asr_runtime` 与 `training` 互不依赖。运行时镜像只安装各自的包，不会把 TTS 依赖带进 ASR，也不会把 torch 带进 TTS 网关。
+`common` 不依赖任何其他包，`tts_runtime`、`asr_runtime` 与 `training` 互不依赖。运行时镜像只安装各自的包，不会把 TTS 依赖带进 ASR，也不会把 torch 带进 TTS 网关。
 
 ## 开发安装
 
@@ -46,7 +46,7 @@ python -m venv .venv
 .venv/Scripts/activate          # Linux/macOS: source .venv/bin/activate
 
 pip install -e packages/common
-pip install -e "packages/runtime[dev]"
+pip install -e "packages/tts_runtime[dev]"
 ```
 
 Windows 可执行：
@@ -70,7 +70,7 @@ pip install -e "packages/evaluation[metrics]"
 Mock 引擎生成确定性音频，不需要 GPU 和模型，用于联调协议与压测网关。
 
 ```bash
-cosyvoice-runtime
+tts-runtime
 ```
 
 默认读取 `configs/runtime.yaml`，监听 `0.0.0.0:8000`。
@@ -121,7 +121,7 @@ Authorization: Bearer test-key
 4. `finish-task` 结束；`payload.input.directive="cancel"` 可取消当前轮次。
 5. 同一连接可复用，每次任务使用新的 `task_id`。
 
-消息样例见 [运行时方案 6.6 节](docs/design/cosyvoice-runtime.md#66-websocket-契约)。
+消息样例见 [运行时方案 6.6 节](docs/design/tts-runtime.md#66-websocket-契约)。
 
 ## 配置
 
@@ -143,7 +143,7 @@ Authorization: Bearer test-key
 ## 接入真实 CosyVoice
 
 ```bash
-pip install -e "packages/runtime[cosyvoice]"
+pip install -e "packages/tts_runtime[cosyvoice]"
 ```
 
 1. 按 [训练方案](docs/design/cosyvoice-training.md) 产出模型包。
@@ -200,7 +200,7 @@ COSYVOICE_REPO=/path/to/CosyVoice python scripts/gpu_smoke.py \
   --text '你好，我是你的语音助手，很高兴为你服务。' --out /tmp/smoke.wav --runs 2
 
 # 2) 起网关（预加载模型，storage=none）
-COSYVOICE_RUNTIME_CONFIG=configs/runtime.gpu.yaml cosyvoice-runtime
+COSYVOICE_RUNTIME_CONFIG=configs/runtime.gpu.yaml tts-runtime
 ```
 
 `scripts/gpu_smoke.py` 输出 `load_s`、首包时延 `first_chunk_s`、`rtf`、`peak_gpu_mb`；
@@ -210,22 +210,22 @@ CosyVoice3 零样本克隆的 `prompt_text` 必须包含 `<|endofprompt|>` 标�
 单卡实测（A100-40G，2026-11-12）：fp32 单流 RTF ≈0.70、首包 2.0–3.0s、显存 3.4GB；
 1/2/4 路并发的聚合实时倍率约 1.17×/1.56×/1.47×——上游所有请求共用一个 CUDA stream，
 线程并发不能提升 GPU 并行度。**生产参数取 `max_concurrent=2`**，更高并发需要
-LLM/Flow 批处理，详见[容量实测](docs/design/cosyvoice-runtime.md#859-单卡实测校准a100-40g--cosyvoice30-5b2026-11-12)。
+LLM/Flow 批处理，详见[容量实测](docs/design/tts-runtime.md#859-单卡实测校准a100-40g--cosyvoice30-5b2026-11-12)。
 
 批处理路径已接好、默认关闭：`bash deploy/bootstrap-gpu.sh --vllm` 启用 vLLM 连续 batching，
 `--trt` 启用 Flow 的 TensorRT（首次启动编译 plan）。两者都必须先在目标 GPU 上用
 `scripts/gpu_smoke.py --vllm/--trt --concurrency 4 --tasks 16` 与基线对比通过再切流量，
-原因、预期收益与风险见[加速栈](docs/design/cosyvoice-runtime.md#8510-加速栈vllm-连续批处理--tensorrt-flow当前最优路径)，
-操作与回滚见[运维手册 7.3](docs/ops/cosyvoice-runtime-runbook.md#73-加速栈vllm--tensorrt启用与回滚)。
+原因、预期收益与风险见[加速栈](docs/design/tts-runtime.md#8510-加速栈vllm-连续批处理--tensorrt-flow当前最优路径)，
+操作与回滚见[运维手册 7.3](docs/ops/tts-runtime-runbook.md#73-加速栈vllm--tensorrt启用与回滚)。
 零样本音色的 reference 特征会在加载时预热（`engine.cosyvoice.cache_prompt_features`，默认开），
 fp16 在 A100 上更慢更占显存，保持关闭。
 
 
 - [部署说明](deploy/README.md)：镜像、Helm、Secret、压测与上线检查。
-- [运维手册](docs/ops/cosyvoice-runtime-runbook.md)：指标、告警、发布/回滚、故障处理、容量与验收。
+- [运维手册](docs/ops/tts-runtime-runbook.md)：指标、告警、发布/回滚、故障处理、容量与验收。
 
 ```bash
-helm upgrade --install cosyvoice deploy/helm/cosyvoice-runtime \
+helm upgrade --install cosyvoice deploy/helm/tts-runtime \
   --namespace cosyvoice --create-namespace \
   --set runtime.auth.apiKeys='replace-with-a-long-random-key'
 ```
@@ -238,7 +238,7 @@ python scripts/loadtest.py --mode sse --concurrency 100 --tasks 5000 --api-key t
 python scripts/loadtest.py --mode http --concurrency 100 --tasks 5000 --api-key test-key
 ```
 
-生产容器以非 root、只读根文件系统、drop ALL capabilities 运行；`/healthz`、`/readyz`、`/metrics` 已提供。当前镜像和 chart 是**可部署的运行时基线**，不是已通过真实 GPU/真实模型容量验收的最终生产版本；上线前必须完成 [压测与验收流程](docs/ops/cosyvoice-runtime-runbook.md#7-压测与验收流程)。
+生产容器以非 root、只读根文件系统、drop ALL capabilities 运行；`/healthz`、`/readyz`、`/metrics` 已提供。当前镜像和 chart 是**可部署的运行时基线**，不是已通过真实 GPU/真实模型容量验收的最终生产版本；上线前必须完成 [压测与验收流程](docs/ops/tts-runtime-runbook.md#7-压测与验收流程)。
 
 ## 测试
 
@@ -252,14 +252,14 @@ ruff check packages tests scripts
 只构建运行时包：
 
 ```bash
-docker build -t cosyvoice-runtime .
-docker run --rm -p 8000:8000 cosyvoice-runtime
+docker build -t tts-runtime .
+docker run --rm -p 8000:8000 tts-runtime
 ```
 
 真实模型镜像（GPU target）：
 
 ```bash
-docker build --target gpu -t cosyvoice-runtime:gpu .
+docker build --target gpu -t tts-runtime:gpu .
 ```
 
 FunASR 运行时镜像（独立 Dockerfile）：
@@ -272,7 +272,7 @@ docker build -f Dockerfile.asr --target llamacpp -t funasr-runtime:llamacpp .
 
 模型权重、GGUF 文件与 `llama-funasr-*` 二进制不打包进镜像，分别挂载到 `/models` 与 `/opt/funasr/bin`。
 
-GPU 镜像的 torch 来自 conda（2.10.0+cu128），模型权重与 CosyVoice 上游代码不打包进镜像；构建、挂载和已知坑见 [镜像说明](docs/ops/cosyvoice-runtime-image.md)。
+GPU 镜像的 torch 来自 conda（2.10.0+cu128），模型权重与 CosyVoice 上游代码不打包进镜像；构建、挂载和已知坑见 [镜像说明](docs/ops/tts-runtime-image.md)。
 
 训练镜像应基于 `packages/training` 单独构建，不把 torch 带进运行时镜像。
 

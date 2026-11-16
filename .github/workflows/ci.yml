@@ -25,7 +25,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e packages/common
-          python -m pip install -e "packages/runtime[dev]"
+          python -m pip install -e "packages/tts_runtime[dev]"
           python -m pip install -e "packages/asr_runtime[dev]"
       - name: Lint
         run: |
@@ -48,7 +48,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build --wheel --outdir dist/common packages/common
-          python -m build --wheel --outdir dist/runtime packages/runtime
+          python -m build --wheel --outdir dist/tts_runtime packages/tts_runtime
           python -m build --wheel --outdir dist/asr_runtime packages/asr_runtime
           python -m build --wheel --outdir dist/data packages/data
           python -m build --wheel --outdir dist/training packages/training
@@ -64,11 +64,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build CPU runtime image
-        run: docker build --pull -t cosyvoice-runtime:ci .
+        run: docker build --pull -t tts-runtime:ci .
       - name: Smoke test container
         run: |
           docker run -d --name runtime-ci -p 8000:8000 \
-            -e COSYVOICE_API_KEYS=test-key cosyvoice-runtime:ci
+            -e COSYVOICE_API_KEYS=test-key tts-runtime:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/readyz; then exit 0; fi
             sleep 2

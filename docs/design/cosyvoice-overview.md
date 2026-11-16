@@ -3,7 +3,7 @@
 > 版本：v1.0  
 > 适用范围：基于 `Fun-CosyVoice3-0.5B-2512` 的单说话人/少说话人实时语音合成，支持私有化部署，并兼容阿里云百炼 CosyVoice HTTP / WebSocket 接口。  
 > 关联文档：
-> - [运行时方案](./cosyvoice-runtime.md)
+> - [运行时方案](./tts-runtime.md)
 > - [训练方案](./cosyvoice-training.md)
 
 ---
@@ -22,7 +22,7 @@
 | 平面 | 文档 | 关注点 |
 |---|---|---|
 | 训练平面 | [cosyvoice-training.md](./cosyvoice-training.md) | 数据清洗、环境准备、SFT、评测、模型交付 |
-| 运行时平面 | [cosyvoice-runtime.md](./cosyvoice-runtime.md) | 模型部署、并发优化、流式链路、能力提供、阿里云接口兼容 |
+| 运行时平面 | [tts-runtime.md](./tts-runtime.md) | 模型部署、并发优化、流式链路、能力提供、阿里云接口兼容 |
 
 ---
 
@@ -103,7 +103,7 @@ exp/cosyvoice3/{llm,flow,hifigan}/.../llm.pt / flow.pt / hifigan.pt
 | 100 active | 单业务线/单说话人 | 11–20×L20 或 6–10×A100 | 1–2×A100 | 4–6 pods |
 | 1000 active | 多业务线/多 Cell | 110–190×L20 或 55–95×A100 | 4–8×A100 | 12–20 pods |
 
-> 表中是**分散起播**的常态值。若 100/1000 路在极短时间内同时起播，Token2Wav 分别约需 36–44 / 360–430×L20，这是外呼集中拨号的最坏值，不应作为常态容量。1000 路连接、30% 活跃、5s 一句 → 约 360 active，Token2Wav 约 40–70×L20。详细公式、Cell 拓扑和压测门槛见 [运行时方案 8.5](./cosyvoice-runtime.md#85-100--1000-并发容量方案)。
+> 表中是**分散起播**的常态值。若 100/1000 路在极短时间内同时起播，Token2Wav 分别约需 36–44 / 360–430×L20，这是外呼集中拨号的最坏值，不应作为常态容量。1000 路连接、30% 活跃、5s 一句 → 约 360 active，Token2Wav 约 40–70×L20。详细公式、Cell 拓扑和压测门槛见 [运行时方案 8.5](./tts-runtime.md#85-100--1000-并发容量方案)。
 
 ---
 
@@ -129,7 +129,7 @@ exp/cosyvoice3/{llm,flow,hifigan}/.../llm.pt / flow.pt / hifigan.pt
 | 目录 | 发行包 | 依赖 | 说明 |
 |---|---|---|---|
 | `packages/common` | `cosyvoice-common` | 无内部依赖 | 音频编解码、文本前端、错误模型 |
-| `packages/runtime` | `cosyvoice-runtime` | `cosyvoice-common` + FastAPI | 在线服务 |
+| `packages/tts_runtime` | `tts-runtime` | `cosyvoice-common` + FastAPI | 在线服务 |
 | `packages/data` | `cosyvoice-data` | `cosyvoice-common` | 清洗、切分、manifest |
 | `packages/training` | `cosyvoice-training` | `cosyvoice-common` | SFT；torch 在 `sft` extra 中 |
 | `packages/evaluation` | `cosyvoice-evaluation` | `cosyvoice-common` | 客观指标与回归门禁 |
@@ -137,7 +137,7 @@ exp/cosyvoice3/{llm,flow,hifigan}/.../llm.pt / flow.pt / hifigan.pt
 约束：
 
 - `runtime` 与 `training` 互不 import；二者只依赖 `common`。
-- 运行时镜像只安装 `cosyvoice-runtime`，训练镜像只安装训练相关包。
+- 运行时镜像只安装 `tts-runtime`，训练镜像只安装训练相关包。
 - 每个包独立版本、独立 wheel、独立发布；以后拆仓不需要改业务代码。
 
 ---
@@ -154,7 +154,7 @@ exp/cosyvoice3/{llm,flow,hifigan}/.../llm.pt / flow.pt / hifigan.pt
 | 运行时 | Python 3.10 + FastAPI/Uvicorn；Triton；vLLM/TRT-LLM |
 | 容器 | 训练镜像、运行时镜像分离；模型 artifact 外挂 |
 
-> 具体版本以 [cosyvoice-runtime.md](./cosyvoice-runtime.md) 和 [cosyvoice-training.md](./cosyvoice-training.md) 的锁定清单为准。升级 CUDA/PyTorch/TensorRT 必须重跑兼容性和音质回归。
+> 具体版本以 [tts-runtime.md](./tts-runtime.md) 和 [cosyvoice-training.md](./cosyvoice-training.md) 的锁定清单为准。升级 CUDA/PyTorch/TensorRT 必须重跑兼容性和音质回归。
 
 ---
 
@@ -183,6 +183,6 @@ exp/cosyvoice3/{llm,flow,hifigan}/.../llm.pt / flow.pt / hifigan.pt
 
 ## 8. 阅读顺序
 
-1. 先读 [cosyvoice-runtime.md](./cosyvoice-runtime.md) 的“阿里云兼容层”和“并发与性能”。
+1. 先读 [tts-runtime.md](./tts-runtime.md) 的“阿里云兼容层”和“并发与性能”。
 2. 再读 [cosyvoice-training.md](./cosyvoice-training.md) 的“数据清洗”和“评测门禁”。
 3. 落地时按两份文档的“实施步骤/验收清单”执行。

@@ -1,4 +1,4 @@
-service_name: cosyvoice-runtime
+service_name: tts-runtime
 version: 0.1.0
 # Set to "prod" (or anything other than "dev") in production. In non-dev mode
 # local file serving requires storage.signing_secret.

@@ -124,7 +124,7 @@ wget==3.2                  # matcha.utils.utils imports `wget`
 #   modelscope       upstream imports it at module level, but only uses it for
 #                    repo-id checkpoints. Deployments here always pass a local
 #                    directory, and install_modelscope_stub() in
-#                    cosyvoice_runtime.engines.cosyvoice_compat satisfies the
+#                    tts_runtime.engines.cosyvoice_compat satisfies the
 #                    import. ModelScope's authenticated snapshot calls were
 #                    also what broke wetext 0.0.4 in private networks.
 #   sentencepiece    Qwen2 tokenizer ships tokenizer.json; add if a checkpoint

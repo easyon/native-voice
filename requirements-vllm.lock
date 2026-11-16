@@ -42,7 +42,7 @@ numba==0.61.2               # last release accepting numpy 1.26.4; librosa needs
 #
 # Engine sizing: upstream load_vllm hardcodes gpu_memory_utilization=0.2, which
 # could not fit the 32768-token KV cache on a 32GB card (0.38GiB needed,
-# 0.1GiB available). cosyvoice_runtime.engines.cosyvoice_compat
+# 0.1GiB available). tts_runtime.engines.cosyvoice_compat
 # .install_vllm_engine_overrides() rewrites EngineArgs; the values come from
 # engine.cosyvoice.vllm in the YAML or COSYVOICE_VLLM_* env vars.
 #

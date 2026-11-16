@@ -1,7 +1,7 @@
 # CosyVoice 训练技术方案
 
 > 目标：基于 `Fun-CosyVoice3-0.5B-2512` 做单说话人/少说话人 SFT，产出可交付给运行时的模型包；覆盖数据清洗、环境准备、训练、评测和发布。  
-> 关联文档：[总体方案](./cosyvoice-overview.md) · [运行时方案](./cosyvoice-runtime.md)
+> 关联文档：[总体方案](./cosyvoice-overview.md) · [运行时方案](./tts-runtime.md)
 
 ---
 
@@ -701,7 +701,7 @@ cosyvoice3-sft-YYYYMMDD-<data>-<rev>
 | Flow 未训 | 情绪/音色细节不足 | 按需 Flow SFT |
 | 评测主观 | 结论不稳 | 盲测 + 多人 + 固定测试集 |
 | 合规 | 声音侵权 | 授权、审计、脱敏 |
-| 运行时瓶颈 | 训练好但上线并发低 | 见 [运行时方案 8.5](./cosyvoice-runtime.md#85-100--1000-并发容量方案) 的容量规划与压测 |
+| 运行时瓶颈 | 训练好但上线并发低 | 见 [运行时方案 8.5](./tts-runtime.md#85-100--1000-并发容量方案) 的容量规划与压测 |
 
 ---
 

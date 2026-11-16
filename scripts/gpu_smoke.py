@@ -173,7 +173,7 @@ def main() -> int:
     import torch
 
     try:
-        from cosyvoice_runtime.engines.cosyvoice_compat import (
+        from tts_runtime.engines.cosyvoice_compat import (
             install_modelscope_stub,
             install_vllm_engine_overrides,
             install_wav_loader,
@@ -184,7 +184,7 @@ def main() -> int:
         install_wav_loader()
         install_wetext_assets()
         if args.vllm:
-            from cosyvoice_runtime.settings import VllmEngineConfig
+            from tts_runtime.settings import VllmEngineConfig
 
             sizing = VllmEngineConfig().overrides()
             for key, value in (
@@ -214,7 +214,7 @@ def main() -> int:
                 json.dumps(
                     {
                         "ok": False,
-                        "error": "--vllm needs cosyvoice_runtime for engine sizing",
+                        "error": "--vllm needs tts_runtime for engine sizing",
                     }
                 )
             )

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Container entrypoint: prepare the dynamic loader and PYTHONPATH, then exec
-# the requested command (default: cosyvoice-runtime).
+# the requested command (default: tts-runtime).
 #
 # The image does not bake in the upstream CosyVoice checkout. Mount it
 # read-only and point COSYVOICE_REPO at it:
@@ -35,12 +35,12 @@ elif [ "${COSYVOICE_ENGINE_TYPE:-}" = "cosyvoice" ]; then
 fi
 
 if [ "$#" -eq 0 ]; then
-    set -- cosyvoice-runtime
+    set -- tts-runtime
 fi
 
 # Allow `docker run IMAGE --port 9000` as a shorthand for the CLI.
 case "$1" in
-    -*) set -- cosyvoice-runtime "$@" ;;
+    -*) set -- tts-runtime "$@" ;;
 esac
 
 exec "$@"

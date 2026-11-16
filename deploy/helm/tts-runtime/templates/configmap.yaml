@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tts-runtime.fullname" . }}
+  labels:
+    {{- include "tts-runtime.labels" . | nindent 4 }}
+data:
+  runtime.yaml: |
+    service_name: {{ .Values.runtime.serviceName | quote }}
+    version: {{ .Values.runtime.version | quote }}
+    environment: {{ .Values.runtime.environment | quote }}
+
+    server:
+      host: {{ .Values.runtime.server.host | quote }}
+      port: {{ .Values.runtime.server.port }}
+      request_timeout_s: {{ .Values.runtime.server.requestTimeoutS }}
+      ws_idle_timeout_s: {{ .Values.runtime.server.wsIdleTimeoutS }}
+      ws_send_timeout_s: {{ .Values.runtime.server.wsSendTimeoutS }}
+      max_request_bytes: {{ .Values.runtime.server.maxRequestBytes }}
+      max_ws_message_bytes: {{ .Values.runtime.server.maxWsMessageBytes }}
+      max_ws_connections: {{ .Values.runtime.server.maxWsConnections }}
+      worker_threads: {{ .Values.runtime.server.workerThreads }}
+      cors_origins: {{ toYaml .Values.runtime.server.corsOrigins | nindent 8 }}
+      trusted_hosts: {{ toYaml .Values.runtime.server.trustedHosts | nindent 8 }}
+      docs_enabled: {{ .Values.runtime.server.docsEnabled }}
+      ui_enabled: {{ .Values.runtime.server.uiEnabled }}
+      access_log: {{ .Values.runtime.server.accessLog }}
+      proxy_headers: {{ .Values.runtime.server.proxyHeaders }}
+      forwarded_allow_ips: {{ .Values.runtime.server.forwardedAllowIps | quote }}
+      keepalive_timeout_s: {{ .Values.runtime.server.keepaliveTimeoutS }}
+
+    # auth.enabled is set by COSYVOICE_API_KEYS from the Secret. Keys and
+    # tenant definitions stay out of this ConfigMap.
+    auth:
+      enabled: false
+      metrics_public: {{ .Values.runtime.auth.metricsPublic }}
+
+    engine:
+      type: {{ .Values.runtime.engine.type | quote }}
+      mock:
+        chunk_ms: {{ .Values.runtime.engine.mock.chunkMs }}
+        realtime: {{ .Values.runtime.engine.mock.realtime }}
+        amplitude: {{ .Values.runtime.engine.mock.amplitude }}
+      cosyvoice:
+        load_jit: {{ .Values.runtime.engine.cosyvoice.loadJit }}
+        load_vllm: {{ .Values.runtime.engine.cosyvoice.loadVllm }}
+        load_trt: {{ .Values.runtime.engine.cosyvoice.loadTrt }}
+        trt_concurrent: {{ .Values.runtime.engine.cosyvoice.trtConcurrent }}
+        fp16: {{ .Values.runtime.engine.cosyvoice.fp16 }}
+        preload: {{ .Values.runtime.engine.cosyvoice.preload }}
+        max_concurrent: {{ .Values.runtime.engine.cosyvoice.maxConcurrent }}
+        sample_rate: {{ .Values.runtime.engine.cosyvoice.sampleRate }}
+        queue_size: {{ .Values.runtime.engine.cosyvoice.queueSize }}
+        cancel_grace_s: {{ .Values.runtime.engine.cosyvoice.cancelGraceS }}
+        warmup_text: {{ .Values.runtime.engine.cosyvoice.warmupText | quote }}
+
+    models:
+    {{- range $name, $model := .Values.runtime.models }}
+      {{ $name }}:
+        engine: {{ $model.engine | quote }}
+        artifact: {{ $model.artifact | quote }}
+        default_voice: {{ $model.defaultVoice | quote }}
+        sample_rate: {{ $model.sampleRate }}
+    {{- end }}
+
+    voices:
+    {{- range $name, $voice := .Values.runtime.voices }}
+      {{ $name }}:
+        spk_id: {{ $voice.spkId | quote }}
+        mode: {{ $voice.mode | quote }}
+        instruct: {{ $voice.instruct | quote }}
+        prompt_wav: {{ $voice.promptWav | quote }}
+        prompt_text: {{ $voice.promptText | quote }}
+        embedding: {{ $voice.embedding | quote }}
+    {{- end }}
+
+    limits:
+      max_text_chars: {{ .Values.runtime.limits.maxTextChars }}
+      max_total_chars: {{ .Values.runtime.limits.maxTotalChars }}
+      max_concurrent_streams: {{ .Values.runtime.limits.maxConcurrentStreams }}
+      acquire_timeout_s: {{ .Values.runtime.limits.acquireTimeoutS }}
+      sentence_timeout_s: {{ .Values.runtime.limits.sentenceTimeoutS }}
+      first_audio_timeout_s: {{ .Values.runtime.limits.firstAudioTimeoutS }}
+      max_request_s: {{ .Values.runtime.limits.maxRequestS }}
+      max_task_duration_s: {{ .Values.runtime.limits.maxTaskDurationS }}
+      shutdown_timeout_s: {{ .Values.runtime.limits.shutdownTimeoutS }}
+      ws_queue_size: {{ .Values.runtime.limits.wsQueueSize }}
+      ws_cancel_timeout_s: {{ .Values.runtime.limits.wsCancelTimeoutS }}
+      max_stream_audio_bytes: {{ .Values.runtime.limits.maxStreamAudioBytes }}
+      stream_chunk_bytes: {{ .Values.runtime.limits.streamChunkBytes }}
+      ssml_strict: {{ .Values.runtime.limits.ssmlStrict }}
+
+    storage:
+      type: {{ .Values.runtime.storage.type | quote }}
+      dir: {{ .Values.runtime.storage.dir | quote }}
+      base_url: {{ .Values.runtime.storage.baseUrl | quote }}
+      ttl_s: {{ .Values.runtime.storage.ttlS }}
+      serve_files: {{ .Values.runtime.storage.serveFiles }}
+      cleanup_interval_s: {{ .Values.runtime.storage.cleanupIntervalS }}
+
+    cloning:
+      enabled: {{ .Values.runtime.cloning.enabled }}
+      dir: {{ .Values.runtime.cloning.dir | quote }}
+      max_upload_bytes: {{ .Values.runtime.cloning.maxUploadBytes }}
+      min_duration_s: {{ .Values.runtime.cloning.minDurationS }}
+      max_duration_s: {{ .Values.runtime.cloning.maxDurationS }}
+      prompt_sample_rate: {{ .Values.runtime.cloning.promptSampleRate }}
+
+    logging:
+      level: {{ .Values.runtime.logging.level | quote }}
+      format: {{ .Values.runtime.logging.format | quote }}
+      access_log: {{ .Values.runtime.logging.accessLog }}
