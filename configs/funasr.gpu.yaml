@@ -1,0 +1,103 @@
+service_name: funasr-runtime
+version: 0.1.0
+environment: prod
+
+server:
+  host: 0.0.0.0
+  port: 8001
+  ws_idle_timeout_s: 23
+  ws_send_timeout_s: 10
+  max_ws_connections: 1000
+  worker_threads: 16
+  docs_enabled: false
+  ui_enabled: true
+  access_log: true
+
+auth:
+  # Enable in production. API keys come from FUNASR_API_KEYS or this list.
+  enabled: false
+  api_keys: []
+  tenants: []
+  metrics_public: false
+  metrics_token: ""
+
+engine:
+  type: funasr
+  vad:
+    type: funasr
+    pre_roll_ms: 200
+  funasr:
+    device: cuda:0
+    vad_device: cpu
+    model_root: /models
+    allow_download: false
+    hub: ms
+    executor_threads: 1
+    trust_remote_code: true
+    # Fun-ASR-Nano loads model.py from its model directory with
+    # trust_remote_code=true. If a checkpoint needs an explicit path, set:
+    # remote_code: /models/Fun-ASR-Nano-2512/model.py
+    remote_code: ""
+    # Optional: explicit model directory for fsmn-vad.
+    vad_model: /models/fsmn-vad
+    partial_interval_ms: 960
+    partial_window_s: 8
+    warmup: true
+    inference_args: {}
+  mock:
+    sentences: ["你好，欢迎使用语音识别服务。"]
+  llamacpp:
+    binary_dir: /opt/funasr/bin
+
+# Models are mounted; the image never downloads weights at startup.
+# Keep only the models this replica should serve: every configured model is
+# loaded at startup and occupies GPU memory for the life of the process.
+models:
+  fun-asr-realtime:
+    engine: funasr
+    architecture: fun-asr-nano
+    artifact: /models/Fun-ASR-Nano-2512
+    vad_artifact: /models/fsmn-vad
+    language: auto
+    itn: true
+  paraformer-realtime:
+    engine: funasr
+    architecture: paraformer
+    artifact: /models/Paraformer
+    vad_artifact: /models/fsmn-vad
+    itn: true
+  sensevoice-realtime:
+    engine: funasr
+    architecture: sensevoice
+    artifact: /models/SenseVoiceSmall
+    vad_artifact: /models/fsmn-vad
+    language: auto
+    itn: true
+
+aliases:
+  whisper-1: fun-asr-realtime
+  whisper-large-v3: fun-asr-realtime
+
+offline:
+  default_model: fun-asr-realtime
+  max_upload_bytes: 104857600
+  max_duration_s: 3600
+
+limits:
+  max_concurrent_streams: 8
+  max_task_duration_s: 3600
+  max_audio_bytes_per_task: 134217728
+  heartbeat_interval_ms: 5000
+  finish_timeout_s: 15
+  max_segment_ms: 30000
+  min_speech_ms: 200
+  shutdown_timeout_s: 15
+
+metrics:
+  gpu_sampling_interval_s: 5
+  gpu_device: 0
+
+logging:
+  level: INFO
+  format: json
+  access_log: true

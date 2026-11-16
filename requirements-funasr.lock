@@ -1,0 +1,32 @@
+# FunASR realtime engine dependencies (CPU and GPU images).
+#
+# This is a curated constraint set, not a full freeze: regenerate on the target
+# Linux host after validating a model/GPU combination:
+#   pip freeze > requirements-funasr.freeze.txt
+#
+# torch/torchaudio are intentionally absent. The GPU image takes them from the
+# conda environment (CUDA 12.8 build) and the CPU image installs the matching
+# CPU wheels explicitly; pip-installing a CUDA torch wheel by accident is the
+# most common cause of a silently CPU-only deployment.
+#
+# Install order:
+#   pip install -r requirements-runtime.lock
+#   pip install -r requirements-funasr.lock
+#   pip install --no-deps /wheels/*.whl
+
+funasr==1.4.26
+modelscope==1.40.3
+transformers>=4.40,<5
+sentencepiece>=0.2,<0.3
+soundfile>=0.12,<0.15
+librosa>=0.10,<1.1
+# FunASR 1.4.x and the model code are validated on numpy 2.x; umap-learn (a
+# FunASR dependency) requires >=2.0. The runtime lock already pins 2.4.6.
+numpy>=2.0,<3
+scipy>=1.10,<2
+omegaconf>=2.0,<3
+hydra-core>=1.3,<2
+tiktoken>=0.7,<1
+kaldiio>=2.17,<3
+safetensors>=0.4,<1
+huggingface-hub>=0.23,<2

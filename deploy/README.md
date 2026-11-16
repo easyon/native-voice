@@ -1,6 +1,31 @@
 # 部署
 
-运行时只安装 `cosyvoice-common` + `cosyvoice-runtime`。训练、数据、评测包不会进入运行时镜像。
+运行时只安装 `cosyvoice-common` + `cosyvoice-runtime`。训练、数据、评测包不会进入运行时镜像。ASR 运行时（`funasr-runtime`）是独立包与独立镜像，见 [0.2](#02-funasr-运行时独立服务)。
+
+## 0.2 FunASR 运行时（独立服务）
+
+`funasr-runtime` 提供百炼 Fun-ASR Realtime 兼容 WebSocket 与 OpenAI 兼容离线转写，默认端口 `8001`。
+
+```bash
+pip install -e packages/common
+pip install -e "packages/asr_runtime[funasr]"
+
+# 显式下载模型（默认不联网）
+python scripts/download_funasr_models.py --models fun-asr-nano,fsmn-vad --dest /data/models
+
+# 按实际路径修改 configs/funasr.gpu.yaml 后启动
+FUNASR_RUNTIME_CONFIG=configs/funasr.gpu.yaml funasr-runtime
+```
+
+镜像：
+
+```bash
+docker build -f Dockerfile.asr -t funasr-runtime:cpu .          # mock/基础
+docker build -f Dockerfile.asr --target gpu -t funasr-runtime:gpu .
+docker build -f Dockerfile.asr --target llamacpp -t funasr-runtime:llamacpp .
+```
+
+模型/GGUF 文件不打包，分别挂载到 `/models` 与 `/opt/funasr/bin`。设计与运维见 [FunASR 运行时方案](../docs/design/funasr-runtime.md) 与 [运维手册](../docs/ops/funasr-runtime-runbook.md)。
 
 ## 0. 新 GPU 服务器一键部署（裸机，推荐先走这条）
 

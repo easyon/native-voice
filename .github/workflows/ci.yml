@@ -26,6 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e packages/common
           python -m pip install -e "packages/runtime[dev]"
+          python -m pip install -e "packages/asr_runtime[dev]"
       - name: Lint
         run: |
           ruff check packages tests scripts
@@ -48,6 +49,7 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build --wheel --outdir dist/common packages/common
           python -m build --wheel --outdir dist/runtime packages/runtime
+          python -m build --wheel --outdir dist/asr_runtime packages/asr_runtime
           python -m build --wheel --outdir dist/data packages/data
           python -m build --wheel --outdir dist/training packages/training
           python -m build --wheel --outdir dist/evaluation packages/evaluation
@@ -72,4 +74,16 @@ jobs:
             sleep 2
           done
           docker logs runtime-ci
+          exit 1
+      - name: Build FunASR CPU image
+        run: docker build --pull -f Dockerfile.asr -t funasr-runtime:ci .
+      - name: Smoke test FunASR container
+        run: |
+          docker run -d --name funasr-ci -p 8001:8001 \
+            -e FUNASR_API_KEYS=test-key funasr-runtime:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8001/readyz; then exit 0; fi
+            sleep 2
+          done
+          docker logs funasr-ci
           exit 1

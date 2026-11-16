@@ -1,0 +1,79 @@
+service_name: funasr-runtime
+version: 0.1.0
+environment: dev
+
+server:
+  host: 0.0.0.0
+  port: 8001
+  ws_idle_timeout_s: 23
+  ws_send_timeout_s: 10
+  max_ws_connections: 200
+  worker_threads: 8
+  docs_enabled: false
+  ui_enabled: true
+  access_log: true
+
+auth:
+  enabled: false
+  api_keys: []
+  tenants: []
+  metrics_public: false
+  metrics_token: ""
+
+engine:
+  type: funasr
+  vad:
+    type: funasr
+    pre_roll_ms: 200
+  funasr:
+    # CPU-only deployment: no CUDA required. SenseVoiceSmall is the best
+    # realtime quality/latency trade-off on CPU; Fun-ASR-Nano also works but
+    # is much slower without a GPU.
+    device: cpu
+    vad_device: cpu
+    model_root: ./models
+    allow_download: false
+    hub: ms
+    executor_threads: 1
+    trust_remote_code: true
+    vad_model: ./models/fsmn-vad
+    partial_interval_ms: 960
+    partial_window_s: 8
+    warmup: true
+    inference_args: {}
+  mock:
+    sentences: ["你好，欢迎使用语音识别服务。"]
+  llamacpp:
+    binary_dir: ./bin
+
+models:
+  fun-asr-realtime:
+    engine: funasr
+    architecture: sensevoice
+    artifact: ./models/SenseVoiceSmall
+    vad_artifact: ./models/fsmn-vad
+    language: auto
+    itn: true
+
+aliases:
+  whisper-1: fun-asr-realtime
+  whisper-large-v3: fun-asr-realtime
+
+offline:
+  default_model: fun-asr-realtime
+  max_upload_bytes: 104857600
+  max_duration_s: 3600
+
+limits:
+  max_concurrent_streams: 2
+  max_task_duration_s: 3600
+  heartbeat_interval_ms: 5000
+  finish_timeout_s: 30
+  max_segment_ms: 30000
+  min_speech_ms: 200
+  shutdown_timeout_s: 15
+
+logging:
+  level: INFO
+  format: text
+  access_log: true

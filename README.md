@@ -15,25 +15,27 @@
 ```text
 packages/
   common/       cosyvoice-common       共享音频/文本/错误模型，不依赖其他包
-  runtime/      cosyvoice-runtime      在线服务，只依赖 common + FastAPI，不装 torch
+  runtime/      cosyvoice-runtime      在线 TTS 服务，只依赖 common + FastAPI，不装 torch
+  asr_runtime/  funasr-runtime         在线 ASR 服务（百炼 Fun-ASR Realtime 兼容）
   data/         cosyvoice-data         清洗、切分、manifest
   training/     cosyvoice-training     SFT / Flow / HiFiGAN，不依赖 runtime
   evaluation/   cosyvoice-evaluation   客观指标、MOS、回归门禁
-configs/        runtime.yaml；后续 training/、evaluation/
+configs/        runtime.yaml / funasr*.yaml；后续 training/、evaluation/
 scripts/        开发与运维脚本
-tests/          common/runtime/data/training/evaluation
+tests/          common/runtime/asr_runtime/data/training/evaluation
 ```
 
 依赖方向：
 
 ```text
-runtime ─┐
-data ────┼──▶ common
-training ┘
-evaluation ─▶ common
+runtime ─────┐
+asr_runtime ─┼──▶ common
+data ────────┤
+training ────┘
+evaluation ──▶ common
 ```
 
-`common` 不依赖任何其他包，`runtime` 与 `training` 互不依赖。运行时镜像只安装 `cosyvoice-runtime`，不会带入 torch/DeepSpeed；训练镜像只安装训练相关包，不会带入 FastAPI/uvicorn。
+`common` 不依赖任何其他包，`runtime`、`asr_runtime` 与 `training` 互不依赖。运行时镜像只安装各自的包，不会把 TTS 依赖带进 ASR，也不会把 torch 带进 TTS 网关。
 
 ## 开发安装
 
@@ -149,6 +151,38 @@ pip install -e "packages/runtime[cosyvoice]"
 3. 模型包目录需包含官方运行时所需的 `cosyvoice.yaml`、`llm.pt`、`flow.pt`、`hift.pt`、`spk2info.pt`、tokenizer 等。
 4. 该模式为进程内加载；生产高并发建议按运行时方案的 LLM / Token2Wav 分离部署演进。
 
+## FunASR ASR 运行时
+
+`funasr-runtime` 是独立的 ASR 服务，对外保持两套接口：
+
+- **百炼 Fun-ASR Realtime 兼容 WebSocket**：`ws://localhost:8001/api-ws/v1/inference`
+- **OpenAI 兼容离线转写**：`POST http://localhost:8001/v1/audio/transcriptions`
+
+支持 `Fun-ASR-Nano-2512`、`Paraformer`、`SenseVoiceSmall`、`fsmn-vad` 的 PyTorch 路径，以及 `llama-funasr-*` 的 GGUF 离线路径。
+
+```bash
+pip install -e packages/common
+pip install -e "packages/asr_runtime[dev]"       # mock / 网关
+pip install -e "packages/asr_runtime[funasr]"    # PyTorch 实时引擎
+
+# mock：不加载模型，联调协议
+funasr-runtime -c configs/funasr.yaml
+# 浏览器测试台：麦克风实时识别、WAV 回放、离线转写
+open http://127.0.0.1:8001/ui
+python scripts/asr_ws_smoke.py \
+  ws://127.0.0.1:8001 fun-asr-realtime sample.wav
+
+# 真实模型：显式下载到 ./models，再使用 GPU 配置
+python scripts/download_funasr_models.py --models fun-asr-nano,fsmn-vad --dest ./models
+FUNASR_RUNTIME_CONFIG=configs/funasr.gpu.yaml funasr-runtime
+
+# 离线转写
+curl -F file=@sample.wav -F model=fun-asr-realtime \
+  http://127.0.0.1:8001/v1/audio/transcriptions
+```
+
+实时链路用 fsmn-vad 断句 + 有界窗口重解码产生 partial；GGUF 引擎面向 CPU/边缘与离线整段转写。配置模板：`configs/funasr.yaml`、`configs/funasr.cpu.yaml`（SenseVoiceSmall + fsmn-vad，纯 CPU）、`configs/funasr.gpu.yaml`、`configs/funasr.llamacpp.yaml`；设计与运维见 [FunASR 运行时方案](docs/design/funasr-runtime.md) 和 [运维手册](docs/ops/funasr-runtime-runbook.md)。
+
 ## 真实模型 / GPU 验证
 
 单卡进程内模式（一个进程独占一张 GPU）：
@@ -227,6 +261,16 @@ docker run --rm -p 8000:8000 cosyvoice-runtime
 ```bash
 docker build --target gpu -t cosyvoice-runtime:gpu .
 ```
+
+FunASR 运行时镜像（独立 Dockerfile）：
+
+```bash
+docker build -f Dockerfile.asr -t funasr-runtime:cpu .          # mock/基础
+docker build -f Dockerfile.asr --target gpu -t funasr-runtime:gpu .
+docker build -f Dockerfile.asr --target llamacpp -t funasr-runtime:llamacpp .
+```
+
+模型权重、GGUF 文件与 `llama-funasr-*` 二进制不打包进镜像，分别挂载到 `/models` 与 `/opt/funasr/bin`。
 
 GPU 镜像的 torch 来自 conda（2.10.0+cu128），模型权重与 CosyVoice 上游代码不打包进镜像；构建、挂载和已知坑见 [镜像说明](docs/ops/cosyvoice-runtime-image.md)。
 

@@ -1,0 +1,101 @@
+# FunASR runtime image.
+#
+#   docker build -f Dockerfile.asr -t funasr-runtime:cpu .                 # mock/base
+#   docker build -f Dockerfile.asr --target gpu -t funasr-runtime:gpu .
+#   docker build -f Dockerfile.asr --target llamacpp -t funasr-runtime:llamacpp .
+#
+# Model weights and GGUF binaries are never baked into the image; mount them at
+# /models and /opt/funasr/bin. The default CPU target listens on port 8001.
+
+ARG PYTHON_IMAGE=python:3.12-slim
+
+FROM ${PYTHON_IMAGE} AS wheelbuilder
+WORKDIR /build
+COPY packages/common /build/packages/common
+COPY packages/asr_runtime /build/packages/asr_runtime
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
+    && mkdir -p /wheels \
+    && pip wheel --no-deps --wheel-dir /wheels /build/packages/common \
+    && pip wheel --no-deps --wheel-dir /wheels /build/packages/asr_runtime
+
+FROM ${PYTHON_IMAGE} AS gpu
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    FUNASR_RUNTIME_CONFIG=/app/configs/funasr.gpu.yaml
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 tini \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-runtime.lock requirements-funasr.lock /tmp/
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r /tmp/requirements-runtime.lock \
+    && pip install --no-cache-dir \
+        torch==2.10.0 torchaudio==2.10.0 \
+        --index-url https://download.pytorch.org/whl/cu128 \
+    && pip install --no-cache-dir -r /tmp/requirements-funasr.lock
+COPY --from=wheelbuilder /wheels /wheels
+RUN pip install --no-cache-dir --no-deps /wheels/*.whl
+COPY configs /app/configs
+RUN useradd --create-home --uid 10001 runtime \
+    && mkdir -p /models /data && chown -R runtime:runtime /app /data
+USER runtime
+EXPOSE 8001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/readyz', timeout=3)"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["funasr-runtime", "-c", "/app/configs/funasr.gpu.yaml"]
+
+FROM ${PYTHON_IMAGE} AS llamacpp
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    FUNASR_RUNTIME_CONFIG=/app/configs/funasr.llamacpp.yaml \
+    FUNASR_BIN_DIR=/opt/funasr/bin
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 tini \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-runtime.lock /tmp/
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r /tmp/requirements-runtime.lock
+COPY --from=wheelbuilder /wheels /wheels
+RUN pip install --no-cache-dir --no-deps /wheels/*.whl
+COPY configs /app/configs
+RUN useradd --create-home --uid 10001 runtime \
+    && mkdir -p /models /opt/funasr/bin /data \
+    && chown -R runtime:runtime /app /data /opt/funasr
+USER runtime
+EXPOSE 8001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/readyz', timeout=3)"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["funasr-runtime", "-c", "/app/configs/funasr.llamacpp.yaml"]
+
+# Default target: mock/base runtime, no torch. Keep this stage last.
+FROM ${PYTHON_IMAGE} AS cpu
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    FUNASR_RUNTIME_CONFIG=/app/configs/funasr.yaml
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 tini \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-runtime.lock /tmp/
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r /tmp/requirements-runtime.lock
+COPY --from=wheelbuilder /wheels /wheels
+RUN pip install --no-cache-dir --no-deps /wheels/*.whl
+COPY configs /app/configs
+RUN useradd --create-home --uid 10001 runtime \
+    && mkdir -p /models /data && chown -R runtime:runtime /app /data
+USER runtime
+EXPOSE 8001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/readyz', timeout=3)"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["funasr-runtime", "-c", "/app/configs/funasr.yaml"]

@@ -10,6 +10,7 @@ cosyvoice-data = { workspace = true }
 cosyvoice-evaluation = { workspace = true }
 cosyvoice-runtime = { workspace = true }
 cosyvoice-training = { workspace = true }
+funasr-runtime = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

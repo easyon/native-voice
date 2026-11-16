@@ -32,5 +32,42 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
+  funasr-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.asr
+      target: cpu
+    image: funasr-runtime:dev
+    init: true
+    ports:
+      - "8001:8001"
+    environment:
+      FUNASR_RUNTIME_CONFIG: /app/configs/funasr.yaml
+      FUNASR_LOG_LEVEL: INFO
+      # Set a real key here for local auth testing.
+      FUNASR_API_KEYS: ""
+    volumes:
+      # Mount PyTorch/GGUF artifacts for real models; the mock config ignores it.
+      - ./models:/models:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8001/readyz')"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 30s
+    restart: unless-stopped
+
 volumes:
   audio:

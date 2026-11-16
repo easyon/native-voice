@@ -1,0 +1,125 @@
+service_name: funasr-runtime
+version: 0.1.0
+environment: dev
+
+server:
+  host: 0.0.0.0
+  port: 8001
+  request_timeout_s: 120
+  ws_idle_timeout_s: 23
+  ws_send_timeout_s: 10
+  max_request_bytes: 1048576
+  max_ws_message_bytes: 1048576
+  max_ws_connections: 1000
+  worker_threads: 16
+  cors_origins: []
+  trusted_hosts: []
+  docs_enabled: false
+  # Browser test console at /ui. Set false to expose only the API.
+  ui_enabled: true
+  access_log: true
+  proxy_headers: true
+  forwarded_allow_ips: 127.0.0.1
+  keepalive_timeout_s: 5
+  ssl_certfile: ""
+  ssl_keyfile: ""
+
+auth:
+  enabled: false
+  api_keys: []
+  # Per-key limits. audio_seconds_per_minute is the ASR billing unit.
+  # tenants:
+  #   - api_key: tenant-a-key
+  #     id: tenant-a
+  #     max_concurrent_streams: 8
+  #     requests_per_minute: 120
+  #     audio_seconds_per_minute: 3600
+  tenants: []
+  metrics_public: false
+  metrics_token: ""
+
+engine:
+  # mock: no model, deterministic partials (local protocol work / CI).
+  # funasr: in-process PyTorch AutoModel.
+  # llamacpp: GGUF binaries (offline / edge).
+  type: mock
+  vad:
+    # passthrough | energy | funasr
+    type: passthrough
+    energy_threshold_db: -40
+    frame_ms: 20
+    pre_roll_ms: 200
+  mock:
+    sentences:
+      - "你好，欢迎使用语音识别服务。"
+      - "今天天气不错。"
+    partial_interval_ms: 200
+    segment_ms: 1800
+    latency_ms: 0
+    emit_words: true
+  funasr:
+    device: auto
+    vad_device: cpu
+    model_root: ./models
+    allow_download: false
+    hub: ms
+    executor_threads: 1
+    trust_remote_code: true
+    remote_code: ""
+    vad_model: ""
+    partial_interval_ms: 960
+    partial_window_s: 8
+    warmup: true
+    inference_args: {}
+  llamacpp:
+    binary_dir: ./bin
+    binaries: {}
+    args: ["{binary}", "-m", "{model}", "-a", "{audio}"]
+    timeout_s: 120
+    max_processes: 1
+    partial_interval_ms: 0
+
+# Business code uses these keys directly. The default aliases keep the
+# Bailian model name and common OpenAI model names working.
+models:
+  fun-asr-realtime:
+    engine: mock
+    architecture: mock
+    artifact: ""
+  paraformer-realtime:
+    engine: mock
+    architecture: mock
+    artifact: ""
+  sensevoice-realtime:
+    engine: mock
+    architecture: mock
+    artifact: ""
+
+aliases:
+  whisper-1: fun-asr-realtime
+  whisper-large-v3: fun-asr-realtime
+
+offline:
+  default_model: fun-asr-realtime
+  max_upload_bytes: 104857600
+  max_duration_s: 3600
+
+limits:
+  max_concurrent_streams: 32
+  acquire_timeout_s: 5
+  max_task_duration_s: 3600
+  max_audio_bytes_per_task: 134217728
+  heartbeat_interval_ms: 5000
+  finish_timeout_s: 15
+  max_segment_ms: 30000
+  min_speech_ms: 200
+  shutdown_timeout_s: 10
+
+metrics:
+  gpu_sampling_interval_s: 5
+  gpu_device: 0
+
+logging:
+  level: INFO
+  format: text
+  access_log: true

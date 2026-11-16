@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:,">
+<title>FunASR 测试台</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --text: #171a20;
+    --muted: #667085;
+    --line: #e2e6ec;
+    --field: #fbfcfd;
+    --accent: #2563eb;
+    --accent-text: #ffffff;
+    --accent-weak: #e4edff;
+    --ok: #15803d;
+    --ok-weak: #dcfce7;
+    --warn: #b45309;
+    --warn-weak: #fef3c7;
+    --err: #b91c1c;
+    --err-weak: #fee2e2;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116;
+      --panel: #161a21;
+      --text: #e7eaf0;
+      --muted: #98a1b0;
+      --line: #2a303b;
+      --field: #1b2029;
+      --accent: #5b9bff;
+      --accent-text: #0b1220;
+      --accent-weak: #1b2b47;
+      --ok: #4ade80;
+      --ok-weak: #14301f;
+      --warn: #fbbf24;
+      --warn-weak: #33270b;
+      --err: #f87171;
+      --err-weak: #38151a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 26px 16px 56px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  h1 { font-size: 20px; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; }
+  .status-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 10px; font-size: 12.5px; color: var(--muted); background: var(--panel);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: var(--ok-weak); }
+  .badge.ok .dot { background: var(--ok); }
+  .badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: var(--warn-weak); }
+  .badge.warn .dot { background: var(--warn); }
+  .badge.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--line)); background: var(--err-weak); }
+  .badge.err .dot { background: var(--err); }
+  button.small { padding: 5px 9px; font-size: 12.5px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 920px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px; min-width: 0;
+  }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  .field { margin-bottom: 14px; }
+  .field > label, .legend { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+  input[type="text"], input[type="password"], input[type="number"], select, textarea {
+    width: 100%; background: var(--field); color: var(--text);
+    border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px;
+    font: inherit; outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  textarea { resize: vertical; min-height: 74px; font-family: var(--mono); font-size: 12px; }
+  .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 560px) { .row, .row.three { grid-template-columns: minmax(0, 1fr); } }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 9px; padding: 9px 16px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.06); }
+  button.danger { color: var(--err); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  @media (max-width: 560px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .metric { border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: var(--field); min-width: 0; }
+  .metric .k { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .metric .v { font-size: 16px; font-variant-numeric: tabular-nums; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+  .transcript {
+    min-height: 120px; max-height: 260px; overflow: auto;
+    background: var(--field); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; font-size: 17px; line-height: 1.75; white-space: pre-wrap; word-break: break-word;
+  }
+  .transcript .partial { color: var(--muted); }
+  .transcript .placeholder { color: var(--muted); font-size: 13px; }
+  .log-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 14px 0 6px; }
+  #log {
+    height: 200px; overflow: auto; background: var(--field); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  }
+  .log-line.err { color: var(--err); }
+  .log-line.ok { color: var(--ok); }
+  .log-line.warn { color: var(--warn); }
+  .log-line.dim { color: var(--muted); }
+  details { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 16px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  details h3 { font-size: 13px; margin: 14px 0 6px; }
+  details p, details li { color: var(--muted); font-size: 12.5px; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  .inline input[type="checkbox"] { width: auto; }
+  .inline label { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .grow { flex: 1; min-width: 0; }
+  details.advanced { margin: 0 0 14px; border-radius: 10px; padding: 9px 12px; background: var(--field); }
+  details.advanced[open] > summary { margin-bottom: 10px; }
+  .full { grid-column: 1 / -1; }
+  .file-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+  pre.code { margin: 8px 0 0; padding: 10px 12px; background: var(--field); border: 1px solid var(--line); border-radius: 9px; overflow: auto; font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>FunASR 测试台</h1>
+      <span class="sub">百炼 Fun-ASR Realtime · OpenAI 离线转写</span>
+    </div>
+    <div class="status-line">
+      <span class="badge" id="status"><span class="dot"></span><span id="status-text">检查中…</span></span>
+      <button type="button" class="small" id="refresh">刷新状态</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>识别参数</h2>
+
+      <div class="field">
+        <label for="api-key">API Key（离线转写使用；WebSocket 受浏览器限制无法携带）</label>
+        <div class="inline">
+          <input class="grow" type="password" id="api-key" autocomplete="off" placeholder="Bearer token">
+          <button type="button" class="small" id="toggle-key">显示</button>
+        </div>
+        <div class="inline" style="margin-top:7px">
+          <input type="checkbox" id="remember-key">
+          <label for="remember-key">记住本机（localStorage；默认只保存在当前标签页）</label>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="model">model</label>
+          <select id="model"></select>
+        </div>
+        <div class="field">
+          <label for="language">language_hints</label>
+          <select id="language">
+            <option value="auto">auto（模型自动识别）</option>
+            <option value="zh">zh 中文</option>
+            <option value="en">en 英文</option>
+            <option value="ja">ja 日文</option>
+            <option value="ko">ko 韩文</option>
+            <option value="yue">yue 粤语</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="silence">max_sentence_silence（ms）</label>
+          <input type="number" id="silence" min="200" max="6000" step="50" value="1300">
+        </div>
+        <div class="field">
+          <label for="hotwords">hotwords（逗号分隔，可选）</label>
+          <input type="text" id="hotwords" placeholder="开放时间,通义实验室">
+        </div>
+      </div>
+
+      <div class="inline" style="margin-bottom:14px">
+        <input type="checkbox" id="heartbeat">
+        <label for="heartbeat">heartbeat（无结果时返回心跳事件）</label>
+      </div>
+
+      <details class="advanced">
+        <summary>高级参数</summary>
+        <div class="field" style="margin:0">
+          <label for="special-filter">special_word_filter（JSON 字符串，可选）</label>
+          <textarea id="special-filter" spellcheck="false" placeholder='{"filter_with_signed":{"word_list":["项目"]},"filter_with_empty":{"word_list":["报告"]}}'></textarea>
+          <div class="hint">命中词替换为等长星号或删除；这是结果后处理，不是模型热词。</div>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button type="button" class="primary" id="start-mic">开始麦克风识别</button>
+        <button type="button" class="danger" id="stop" disabled>停止并等待结果</button>
+        <button type="button" id="clear">清空结果</button>
+      </div>
+      <div class="hint">实时链路固定 16 kHz、单声道、16-bit PCM。浏览器麦克风只在 HTTPS 或 localhost 下可用；通过局域网 IP 以 HTTP 访问时请改用文件回放。</div>
+    </section>
+
+    <section class="panel">
+      <h2>实时结果</h2>
+      <div class="metrics">
+        <div class="metric"><div class="k">状态</div><div class="v" id="metric-state">空闲</div></div>
+        <div class="metric"><div class="k">首个 partial</div><div class="v" id="metric-first">—</div></div>
+        <div class="metric"><div class="k">句数</div><div class="v" id="metric-sentences">0</div></div>
+        <div class="metric"><div class="k">音频时长</div><div class="v" id="metric-duration">0.0s</div></div>
+      </div>
+
+      <div class="field">
+        <div class="log-head">
+          <span class="legend" style="margin:0">识别文本</span>
+          <button type="button" class="small" id="copy">复制</button>
+        </div>
+        <div class="transcript" id="transcript"><span class="placeholder">等待开始…</span></div>
+      </div>
+
+      <div class="log-head">
+        <span class="legend" style="margin:0">事件日志</span>
+        <button type="button" class="small" id="clear-log">清空日志</button>
+      </div>
+      <div id="log"></div>
+    </section>
+
+    <section class="panel full">
+      <h2>文件测试</h2>
+      <div class="row">
+        <div class="field">
+          <label for="file-offline">离线转写（OpenAI /v1/audio/transcriptions）</label>
+          <div class="file-row">
+            <input type="file" id="file-offline" accept="audio/*,.pcm">
+            <button type="button" class="primary" id="run-offline">转写</button>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <select id="offline-format">
+              <option value="json">json</option>
+              <option value="text">text</option>
+              <option value="verbose_json">verbose_json</option>
+              <option value="srt">srt</option>
+              <option value="vtt">vtt</option>
+            </select>
+            <input type="text" id="offline-prompt" placeholder="prompt / 热词（可选）">
+          </div>
+          <div class="hint">支持 wav/mp3 等浏览器可解码或服务端 ffmpeg 可解码的格式。</div>
+        </div>
+
+        <div class="field">
+          <label for="file-ws">通过 WebSocket 回放音频</label>
+          <div class="file-row">
+            <input type="file" id="file-ws" accept="audio/*">
+            <button type="button" class="primary" id="run-ws-file">回放</button>
+          </div>
+          <div class="inline" style="margin-top:10px">
+            <input type="checkbox" id="realtime" checked>
+            <label for="realtime">按实时速率发送（每 100 ms 一帧）</label>
+          </div>
+          <div class="hint">浏览器先把文件解码并重采样为 16 kHz PCM，再走与麦克风相同的 WS 任务。</div>
+        </div>
+      </div>
+      <pre class="code" id="offline-result" hidden></pre>
+    </section>
+  </main>
+
+  <details>
+    <summary>说明与协议</summary>
+    <h3>接口</h3>
+    <ul>
+      <li>实时：<code>WS /api-ws/v1/inference</code>，<code>run-task</code> → 二进制 PCM/WAV → <code>finish-task</code>。</li>
+      <li>离线：<code>POST /v1/audio/transcriptions</code>，字段 <code>file</code> / <code>model</code> / <code>language</code> / <code>response_format</code>。</li>
+      <li>健康检查：<code>/healthz</code>、<code>/readyz</code>、<code>/metrics</code>。</li>
+    </ul>
+    <h3>WebSocket 与鉴权</h3>
+    <p>
+      浏览器的 WebSocket API 不能自定义 <code>Authorization</code> 头。服务端
+      <code>auth.enabled=true</code> 时，本页的麦克风/回放模式会以 4401 关闭；
+      离线转写会正常携带 Bearer key。生产验收实时链路时请在受控内网临时关闭鉴权，
+      或使用带自定义头的原生客户端。
+    </p>
+    <h3>实时事件</h3>
+    <pre class="code">task-started
+  → result-generated (sentence_begin=true, sentence_end=false)
+  → result-generated (sentence_end=false)
+  → result-generated (sentence_end=true, usage.duration)
+  → task-finished</pre>
+    <p>
+      <code>sentence_id</code> 从 1 递增；partial 的 <code>end_time</code> 为 null；
+      句末 final 的 <code>usage.duration</code> 为任务累计音频秒数。超过
+      <code>partial_window_s</code> 的长句不再返回 partial，但句末仍返回完整文本。
+    </p>
+    <h3>命令行回放</h3>
+    <pre class="code">python scripts/asr_ws_smoke.py \
+  ws://127.0.0.1:8001/api-ws/v1/inference \
+  fun-asr-realtime sample.wav</pre>
+  </details>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const pagePath = location.pathname;
+  const base = pagePath.endsWith('/ui/')
+    ? pagePath.slice(0, -4)
+    : pagePath.replace(/\/ui$/, '/');
+  const HEALTH_URL = base + 'healthz';
+  const READY_URL = base + 'readyz';
+  const TRANSCRIBE_URL = base + 'v1/audio/transcriptions';
+  const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+    + location.host + base + 'api-ws/v1/inference';
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    status: $('status'), statusText: $('status-text'), refresh: $('refresh'),
+    apiKey: $('api-key'), toggleKey: $('toggle-key'), remember: $('remember-key'),
+    model: $('model'), language: $('language'), silence: $('silence'),
+    hotwords: $('hotwords'), heartbeat: $('heartbeat'),
+    specialFilter: $('special-filter'),
+    startMic: $('start-mic'), stop: $('stop'), clear: $('clear'),
+    metricState: $('metric-state'), metricFirst: $('metric-first'),
+    metricSentences: $('metric-sentences'), metricDuration: $('metric-duration'),
+    transcript: $('transcript'), copy: $('copy'),
+    log: $('log'), clearLog: $('clear-log'),
+    fileOffline: $('file-offline'), runOffline: $('run-offline'),
+    offlineFormat: $('offline-format'), offlinePrompt: $('offline-prompt'),
+    offlineResult: $('offline-result'),
+    fileWs: $('file-ws'), runWsFile: $('run-ws-file'), realtime: $('realtime'),
+  };
+
+  const state = {
+    running: false,
+    stopping: false,
+    ws: null,
+    taskId: '',
+    startedAt: 0,
+    firstPartial: null,
+    sentences: new Map(),
+    partial: '',
+    partialId: null,
+    sentenceCount: 0,
+    audioSeconds: 0,
+    capture: null,
+    doneResolve: null,
+    doneReject: null,
+  };
+
+  function log(message, cls) {
+    const line = document.createElement('div');
+    line.className = 'log-line' + (cls ? ' ' + cls : '');
+    line.textContent = message;
+    els.log.appendChild(line);
+    while (els.log.children.length > 300) els.log.removeChild(els.log.firstChild);
+    els.log.scrollTop = els.log.scrollHeight;
+  }
+
+  function setStatus(text, cls) {
+    els.statusText.textContent = text;
+    els.status.className = 'badge' + (cls ? ' ' + cls : '');
+  }
+
+  function setMetric(el, value) {
+    el.textContent = value;
+  }
+
+  function setRunning(running) {
+    state.running = running;
+    els.startMic.disabled = running;
+    els.runWsFile.disabled = running;
+    els.stop.disabled = !running;
+    setMetric(els.metricState, running ? (state.stopping ? '等待句末' : '识别中') : '空闲');
+  }
+
+  function uuid() {
+    if (crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function authHeaders(extra) {
+    const headers = Object.assign({}, extra || {});
+    const key = els.apiKey.value.trim();
+    if (key) headers.Authorization = 'Bearer ' + key;
+    return headers;
+  }
+
+  function saveKey() {
+    const key = els.apiKey.value.trim();
+    try {
+      if (els.remember.checked) {
+        localStorage.setItem('funasr.apiKey', key);
+      } else {
+        localStorage.removeItem('funasr.apiKey');
+        sessionStorage.setItem('funasr.apiKey', key);
+      }
+    } catch (_) { /* storage may be blocked */ }
+  }
+
+  function loadKey() {
+    try {
+      const remembered = localStorage.getItem('funasr.apiKey');
+      if (remembered) {
+        els.apiKey.value = remembered;
+        els.remember.checked = true;
+        return;
+      }
+      els.apiKey.value = sessionStorage.getItem('funasr.apiKey') || '';
+    } catch (_) { /* ignore */ }
+  }
+
+  async function refreshStatus() {
+    setStatus('检查中…', '');
+    try {
+      const response = await fetch(READY_URL, { cache: 'no-store' });
+      const body = await response.json();
+      const ready = response.ok && body.status === 'ready';
+      setStatus(ready ? '服务就绪' : '未就绪', ready ? 'ok' : 'warn');
+      const models = Array.isArray(body.models) ? body.models : [];
+      const current = els.model.value;
+      els.model.textContent = '';
+      for (const name of models) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        els.model.appendChild(option);
+      }
+      if (!models.length) {
+        const option = document.createElement('option');
+        option.value = 'fun-asr-realtime';
+        option.textContent = 'fun-asr-realtime';
+        els.model.appendChild(option);
+      }
+      if (current && models.includes(current)) els.model.value = current;
+      if (body.engine) log('readyz: engine=' + body.engine + ' models=' + models.join(', '), 'dim');
+    } catch (error) {
+      setStatus('无法连接', 'err');
+      log('readyz 失败: ' + error.message, 'err');
+    }
+  }
+
+  function renderTranscript() {
+    els.transcript.textContent = '';
+    const committed = [...state.sentences.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, text]) => text)
+      .join('');
+    if (!committed && !state.partial) {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'placeholder';
+      placeholder.textContent = '等待开始…';
+      els.transcript.appendChild(placeholder);
+      return;
+    }
+    const text = document.createTextNode(committed);
+    els.transcript.appendChild(text);
+    if (state.partial) {
+      const span = document.createElement('span');
+      span.className = 'partial';
+      span.textContent = state.partial;
+      els.transcript.appendChild(span);
+    }
+    els.transcript.scrollTop = els.transcript.scrollHeight;
+  }
+
+  function updateMetrics() {
+    setMetric(els.metricSentences, String(state.sentenceCount));
+    setMetric(els.metricDuration, state.audioSeconds.toFixed(1) + 's');
+    setMetric(
+      els.metricFirst,
+      state.firstPartial === null ? '—' : (state.firstPartial / 1000).toFixed(2) + 's'
+    );
+  }
+
+  function handleSentence(sentence, usage) {
+    if (!sentence) return;
+    if (sentence.heartbeat) {
+      log('heartbeat', 'dim');
+      return;
+    }
+    const now = performance.now();
+    if (sentence.sentence_end) {
+      state.sentences.set(sentence.sentence_id, sentence.text || '');
+      if (state.partialId === sentence.sentence_id) {
+        state.partial = '';
+        state.partialId = null;
+      }
+      state.sentenceCount += 1;
+      if (usage && typeof usage.duration === 'number') {
+        state.audioSeconds = Math.max(state.audioSeconds, usage.duration);
+      }
+      if (sentence.sentence_begin) {
+        log(
+          'sentence_begin id=' + sentence.sentence_id +
+          ' begin=' + sentence.begin_time + 'ms (no partial)',
+          'dim'
+        );
+      }
+      log(
+        'sentence_end id=' + sentence.sentence_id +
+        ' [' + sentence.begin_time + '-' + sentence.end_time + 'ms]' +
+        (usage && typeof usage.duration === 'number'
+          ? ' usage=' + usage.duration + 's'
+          : '') +
+        ': ' + (sentence.text || ''),
+        'ok'
+      );
+    } else {
+      state.partial = sentence.text || '';
+      state.partialId = sentence.sentence_id;
+      if (sentence.sentence_begin) {
+        log(
+          'sentence_begin id=' + sentence.sentence_id +
+          ' begin=' + sentence.begin_time + 'ms',
+          'dim'
+        );
+      }
+      if (state.firstPartial === null && state.startedAt) {
+        state.firstPartial = now - state.startedAt;
+      }
+      log(
+        'partial id=' + sentence.sentence_id +
+        ' sentence_begin=' + sentence.sentence_begin +
+        ' sentence_end=' + sentence.sentence_end +
+        ': ' + state.partial,
+        'dim'
+      );
+    }
+    renderTranscript();
+    updateMetrics();
+  }
+
+  function handleEvent(message) {
+    const event = message && message.header && message.header.event;
+    if (event === 'task-started') {
+      log('task-started ' + state.taskId, 'ok');
+      return true;
+    }
+    if (event === 'result-generated') {
+      const output = message.payload && message.payload.output;
+      handleSentence(output && output.sentence, message.payload && message.payload.usage);
+      return false;
+    }
+    if (event === 'task-finished') {
+      log('task-finished', 'ok');
+      finishConnection(true);
+      return true;
+    }
+    if (event === 'task-failed') {
+      const header = message.header || {};
+      log(
+        'task-failed ' + (header.error_code || '') + ' ' + (header.error_message || ''),
+        'err'
+      );
+      setStatus('识别失败', 'err');
+      finishConnection(false);
+      return true;
+    }
+    log('未识别事件: ' + event, 'warn');
+    return false;
+  }
+
+  function openTaskSocket() {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(WS_URL);
+      socket.binaryType = 'arraybuffer';
+      state.ws = socket;
+      state.taskId = uuid();
+      state.startedAt = performance.now();
+      state.firstPartial = null;
+      state.partial = '';
+      state.partialId = null;
+      let started = false;
+      let settled = false;
+
+      function fail(error) {
+        if (settled) return;
+        settled = true;
+        try { socket.close(); } catch (_) { /* ignore */ }
+        reject(error);
+      }
+
+      socket.onopen = () => {
+        log('WS 已连接 ' + state.taskId, 'dim');
+        const parameters = {
+          format: 'pcm',
+          sample_rate: 16000,
+          max_sentence_silence: Number(els.silence.value) || 1300,
+          heartbeat: els.heartbeat.checked,
+        };
+        const language = els.language.value;
+        if (language && language !== 'auto') parameters.language_hints = [language];
+        const hotwords = els.hotwords.value.trim();
+        if (hotwords) parameters.hotwords = hotwords;
+        const filter = els.specialFilter.value.trim();
+        if (filter) parameters.special_word_filter = filter;
+        socket.send(JSON.stringify({
+          header: { action: 'run-task', task_id: state.taskId, streaming: 'duplex' },
+          payload: {
+            task_group: 'audio',
+            task: 'asr',
+            function: 'recognition',
+            model: els.model.value,
+            parameters,
+            input: {},
+          },
+        }));
+      };
+
+      socket.onmessage = (event) => {
+        if (typeof event.data !== 'string') return;
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch (error) {
+          log('无法解析服务端消息: ' + error.message, 'err');
+          return;
+        }
+        const name = message.header && message.header.event;
+        if (name === 'task-started' && !started) {
+          started = true;
+          settled = true;
+          handleEvent(message);
+          setStatus('识别中', 'ok');
+          resolve();
+          return;
+        }
+        if (!started) {
+          const header = message.header || {};
+          fail(new Error(
+            '任务失败: ' + (header.error_code || '') + ' ' +
+            (header.error_message || '服务端未先返回 task-started')
+          ));
+          return;
+        }
+        handleEvent(message);
+      };
+
+      socket.onerror = () => {
+        if (!settled) fail(new Error('WebSocket 连接错误'));
+        else log('WebSocket 错误', 'err');
+      };
+
+      socket.onclose = (event) => {
+        if (state.ws === socket) state.ws = null;
+        if (!settled) {
+          const hint = event.code === 4401
+            ? '（服务端开启了鉴权：浏览器 WS 无法携带 Authorization）'
+            : '';
+          fail(new Error('WebSocket 关闭 code=' + event.code + hint));
+          return;
+        }
+        if (state.running && !state.stopping) {
+          log('WebSocket 意外关闭 code=' + event.code, 'err');
+          setStatus('连接已断开', 'err');
+          stopCapture();
+          setRunning(false);
+        }
+      };
+    });
+  }
+
+  function finishConnection(ok) {
+    stopCapture();
+    const socket = state.ws;
+    state.ws = null;
+    if (socket) {
+      try { socket.close(); } catch (_) { /* ignore */ }
+    }
+    state.stopping = false;
+    setRunning(false);
+    setStatus(ok ? '服务就绪' : '识别失败', ok ? 'ok' : 'err');
+    if (state.doneResolve) {
+      const resolve = state.doneResolve;
+      const reject = state.doneReject;
+      state.doneResolve = null;
+      state.doneReject = null;
+      if (ok) resolve();
+      else reject(new Error('任务失败'));
+    }
+  }
+
+  function sendFinish() {
+    const socket = state.ws;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      finishConnection(true);
+      return;
+    }
+    socket.send(JSON.stringify({
+      header: { action: 'finish-task', task_id: state.taskId, streaming: 'duplex' },
+      payload: { input: {} },
+    }));
+  }
+
+  function stopCapture() {
+    const capture = state.capture;
+    state.capture = null;
+    if (!capture) return;
+    try { capture.stream.getTracks().forEach((track) => track.stop()); } catch (_) { /* ignore */ }
+    try { capture.processor.disconnect(); } catch (_) { /* ignore */ }
+    try { capture.source.disconnect(); } catch (_) { /* ignore */ }
+    try { capture.mute.disconnect(); } catch (_) { /* ignore */ }
+    try { capture.ctx.close(); } catch (_) { /* ignore */ }
+  }
+
+  function resample(input, sourceRate, targetRate) {
+    if (sourceRate === targetRate) return input;
+    const ratio = sourceRate / targetRate;
+    const length = Math.max(0, Math.floor(input.length / ratio));
+    const output = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      const position = i * ratio;
+      const index = Math.floor(position);
+      const fraction = position - index;
+      const first = input[index] || 0;
+      const second = input[Math.min(index + 1, input.length - 1)] || 0;
+      output[i] = first + (second - first) * fraction;
+    }
+    return output;
+  }
+
+  function toPcm16(samples) {
+    const pcm = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i++) {
+      const value = Math.max(-1, Math.min(1, samples[i]));
+      pcm[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
+    }
+    return new Uint8Array(pcm.buffer);
+  }
+
+  async function startCapture() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx({ sampleRate: 16000 });
+    await ctx.resume();
+    const source = ctx.createMediaStreamSource(stream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    processor.onaudioprocess = (event) => {
+      if (!state.running || state.stopping) return;
+      const socket = state.ws;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      const input = event.inputBuffer.getChannelData(0);
+      const resampled = resample(input, ctx.sampleRate, 16000);
+      if (resampled.length) socket.send(toPcm16(resampled));
+    };
+    source.connect(processor);
+    processor.connect(mute);
+    mute.connect(ctx.destination);
+    state.capture = { stream, ctx, source, processor, mute };
+    log('麦克风已开始（AudioContext ' + ctx.sampleRate + ' Hz → 16 kHz）', 'dim');
+  }
+
+  async function startMic() {
+    if (state.running) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      log('当前浏览器不支持麦克风采集', 'err');
+      return;
+    }
+    try {
+      state.sentences.clear();
+      state.sentenceCount = 0;
+      state.audioSeconds = 0;
+      state.stopping = false;
+      state.partial = '';
+      state.partialId = null;
+      renderTranscript();
+      updateMetrics();
+      setRunning(true);
+      await openTaskSocket();
+      await startCapture();
+    } catch (error) {
+      log(error.message, 'err');
+      setStatus('启动失败', 'err');
+      finishConnection(true);
+    }
+  }
+
+  function stopMic() {
+    if (!state.running || state.stopping) return;
+    state.stopping = true;
+    setMetric(els.metricState, '等待句末');
+    stopCapture();
+    log('已停止采集，等待句末结果…', 'warn');
+    sendFinish();
+    setTimeout(() => {
+      if (state.running) {
+        log('等待句末超时，强制关闭连接', 'err');
+        finishConnection(false);
+      }
+    }, 20000);
+  }
+
+  async function decodeFileToPcm16k(file) {
+    const array = await file.arrayBuffer();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    let decoded;
+    try {
+      decoded = await ctx.decodeAudioData(array);
+    } finally {
+      try { await ctx.close(); } catch (_) { /* ignore */ }
+    }
+    const length = Math.max(1, Math.ceil(decoded.duration * 16000));
+    const offline = new OfflineAudioContext(1, length, 16000);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start();
+    const rendered = await offline.startRendering();
+    return toPcm16(rendered.getChannelData(0));
+  }
+
+  async function replayFile() {
+    if (state.running) return;
+    const file = els.fileWs.files && els.fileWs.files[0];
+    if (!file) {
+      log('请选择要回放的音频文件', 'warn');
+      return;
+    }
+    let pcm;
+    try {
+      pcm = await decodeFileToPcm16k(file);
+    } catch (error) {
+      log('浏览器无法解码该文件，请改用离线转写或 wav：' + error.message, 'err');
+      return;
+    }
+    state.sentences.clear();
+    state.sentenceCount = 0;
+    state.audioSeconds = 0;
+    state.partial = '';
+    state.partialId = null;
+    state.stopping = false;
+    renderTranscript();
+    updateMetrics();
+    setRunning(true);
+    const done = new Promise((resolve, reject) => {
+      state.doneResolve = resolve;
+      state.doneReject = reject;
+    });
+    try {
+      await openTaskSocket();
+      log('回放 ' + file.name + '（' + (pcm.byteLength / 32000).toFixed(1) + 's）', 'dim');
+      const step = 3200;
+      for (let offset = 0; offset < pcm.byteLength; offset += step) {
+        if (!state.ws || state.ws.readyState !== WebSocket.OPEN) break;
+        state.ws.send(pcm.slice(offset, offset + step));
+        if (els.realtime.checked) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      state.stopping = true;
+      sendFinish();
+      await done;
+    } catch (error) {
+      log(error.message, 'err');
+      state.doneResolve = null;
+      state.doneReject = null;
+      finishConnection(false);
+    }
+    setRunning(false);
+  }
+
+  async function offlineTranscribe() {
+    const file = els.fileOffline.files && els.fileOffline.files[0];
+    if (!file) {
+      log('请选择要转写的音频文件', 'warn');
+      return;
+    }
+    const form = new FormData();
+    form.append('file', file);
+    form.append('model', els.model.value);
+    form.append('response_format', els.offlineFormat.value);
+    const language = els.language.value;
+    if (language && language !== 'auto') form.append('language', language);
+    const prompt = els.offlinePrompt.value.trim();
+    if (prompt) form.append('prompt', prompt);
+    els.runOffline.disabled = true;
+    els.offlineResult.hidden = false;
+    els.offlineResult.textContent = '转写中…';
+    const started = performance.now();
+    try {
+      const response = await fetch(TRANSCRIBE_URL, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: form,
+      });
+      const contentType = response.headers.get('content-type') || '';
+      const text = await response.text();
+      if (!response.ok) {
+        els.offlineResult.textContent = text;
+        log('离线转写失败 HTTP ' + response.status, 'err');
+        return;
+      }
+      if (contentType.includes('application/json')) {
+        try {
+          els.offlineResult.textContent = JSON.stringify(JSON.parse(text), null, 2);
+        } catch (_) {
+          els.offlineResult.textContent = text;
+        }
+      } else {
+        els.offlineResult.textContent = text;
+      }
+      log(
+        '离线转写完成 ' + ((performance.now() - started) / 1000).toFixed(2) + 's',
+        'ok'
+      );
+    } catch (error) {
+      els.offlineResult.textContent = error.message;
+      log('离线转写失败: ' + error.message, 'err');
+    } finally {
+      els.runOffline.disabled = false;
+    }
+  }
+
+  function copyTranscript() {
+    const committed = [...state.sentences.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, text]) => text)
+      .join('');
+    const text = committed + (state.partial || '');
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => log('已复制 ' + text.length + ' 字符', 'dim'),
+        () => log('复制失败', 'err')
+      );
+    } else {
+      log('当前浏览器不支持剪贴板 API', 'warn');
+    }
+  }
+
+  function clearResults() {
+    state.sentences.clear();
+    state.sentenceCount = 0;
+    state.audioSeconds = 0;
+    state.firstPartial = null;
+    state.partial = '';
+    state.partialId = null;
+    renderTranscript();
+    updateMetrics();
+  }
+
+  // ------------------------------------------------------------------ wiring
+  els.refresh.addEventListener('click', refreshStatus);
+  els.startMic.addEventListener('click', startMic);
+  els.stop.addEventListener('click', stopMic);
+  els.clear.addEventListener('click', clearResults);
+  els.copy.addEventListener('click', copyTranscript);
+  els.clearLog.addEventListener('click', () => { els.log.textContent = ''; });
+  els.runOffline.addEventListener('click', offlineTranscribe);
+  els.runWsFile.addEventListener('click', replayFile);
+  els.toggleKey.addEventListener('click', () => {
+    const visible = els.apiKey.type === 'text';
+    els.apiKey.type = visible ? 'password' : 'text';
+    els.toggleKey.textContent = visible ? '显示' : '隐藏';
+  });
+  els.apiKey.addEventListener('change', saveKey);
+  els.remember.addEventListener('change', saveKey);
+
+  loadKey();
+  refreshStatus();
+})();
+</script>
+</body>
+</html>
