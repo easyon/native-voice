@@ -59,7 +59,7 @@ gpu = [
     "lightning==2.2.4",
     "matplotlib>=3.7,<4",
     "omegaconf>=2.3,<3",
-    "openai-whisper==20231117",
+    "openai-whisper==20250625",
     "pyarrow>=18,<19",
     "pyworld>=0.3.4,<0.4",
     "regex>=2024",
