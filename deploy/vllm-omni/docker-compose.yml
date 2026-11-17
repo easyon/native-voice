@@ -1,0 +1,117 @@
+# Qwen3-TTS streaming server (vLLM-Omni, Linux container on WSL2).
+#
+# Prerequisites:
+#   - NVIDIA driver >= 580 (CUDA 13); verify with `nvidia-smi`
+#   - Docker Desktop with WSL2 backend and GPU passthrough
+#   - local model at models/Qwen3-TTS-12Hz-0.6B-Base
+#
+# Usage (from this directory):
+#   docker compose up -d
+#   docker compose logs -f
+#   docker compose down
+#
+# The gateway's qwen3tts_vllm provider connects to 127.0.0.1:8091.
+name: native-voice-vllm
+
+services:
+  tts:
+    image: ${VLLM_OMNI_IMAGE:-native-voice-vllm-omni:nightly}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: native-voice-vllm-tts
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8091:8091"
+    gpus: all
+    shm_size: "8gb"
+    stop_grace_period: 30s
+    volumes:
+      - ../../models:/models:ro
+      - ../../.data/voices:/workspace/.data/voices:ro
+      - ../../third_party:/workspace/third_party:ro
+      - ./qwen3_tts_8gb.yaml:/config/qwen3_tts.yaml:ro
+      - ./.cache/vllm:/root/.cache/vllm
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      PYTHONUNBUFFERED: "1"
+      # Triton 3.7's bundled ptxas is broken in the nightly image; use CUDA's.
+      TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
+    command:
+      - vllm
+      - serve
+      - /models/Qwen3-TTS-12Hz-0.6B-Base
+      - --deploy-config
+      - /config/qwen3_tts.yaml
+      - --omni
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8091"
+      - --trust-remote-code
+      - --allowed-local-media-path
+      - /workspace
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=2)"
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 600s
+
+  # CosyVoice3 checkpoint on the same image, exposed on 8092 for the
+  # `cosyvoice3_vllm` provider. Optional second container:
+  #   docker compose --profile cosyvoice3 up -d tts-cosyvoice3
+  # Never run it together with `tts` on an 8 GB card.
+  tts-cosyvoice3:
+    profiles: ["cosyvoice3"]
+    image: ${VLLM_OMNI_IMAGE:-native-voice-vllm-omni:nightly}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: native-voice-vllm-cosyvoice3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8092:8092"
+    gpus: all
+    shm_size: "8gb"
+    stop_grace_period: 30s
+    volumes:
+      - ../../models:/models:ro
+      - ../../.data/voices:/workspace/.data/voices:ro
+      - ../../third_party:/workspace/third_party:ro
+      - ./cosyvoice3_8gb.yaml:/config/cosyvoice3.yaml:ro
+      - ./.cache/vllm:/root/.cache/vllm
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      PYTHONUNBUFFERED: "1"
+      TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
+    command:
+      - vllm
+      - serve
+      - /models/Fun-CosyVoice3-0.5B
+      - --deploy-config
+      - /config/cosyvoice3.yaml
+      - --omni
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8092"
+      - --trust-remote-code
+      - --allowed-local-media-path
+      - /workspace
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=2)"
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 600s

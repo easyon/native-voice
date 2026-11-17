@@ -1,0 +1,189 @@
+server:
+  host: 127.0.0.1
+  port: 8090
+  cors_origins:
+    - http://localhost:5173
+  max_message_bytes: 65536
+  ws_idle_timeout_s: 60
+  graceful_shutdown_s: 10
+
+auth:
+  db_path: .data/native_voice.db
+  dev_key: false
+  ticket_ttl_s: 60
+  ticket_secret: ""
+
+quotas:
+  max_concurrent_tasks: 4
+  max_concurrent_per_key: 2
+  rpm_per_key: 120
+  tts_chars_per_day: 200000
+  asr_seconds_per_day: 14400
+
+models:
+  root: .
+  asr_stream_model: iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online
+  asr_device: cuda:0
+  asr_chunk_ms: 600
+  tts_model: models/Fun-CosyVoice3-0.5B
+  tts_prompt_wav: third_party/CosyVoice-main/asset/zero_shot_prompt.wav
+  tts_prompt_text: "You are a helpful assistant.<|endofprompt|>希望你以后能够做的比我还好呦。"
+  tts_hop: 15
+  tts_max_cache_len: 2048
+  use_cuda_graph: true
+  warmup: true
+
+tts:
+  default_format: pcm
+  default_sample_rate: 24000
+  supported_formats: [pcm, wav, mp3, opus]
+  supported_sample_rates: [8000, 16000, 22050, 24000, 44100, 48000]
+  voice_aliases:
+    longanyang: default
+    default: default
+
+asr:
+  max_sentence_silence_ms: 1300
+  language_hints: [zh]
+  final_pass: streaming   # streaming | sensevoice
+
+engine:
+  mode: spawn            # external | spawn (spawn = gateway starts GPU subprocesses)
+  # Exactly one provider per stage is started. Override with
+  # NV_ASR_PROVIDER / NV_TTS_PROVIDER or `serve --asr-provider/--tts-provider`.
+  asr_provider: paraformer      # paraformer | qwen3asr
+  tts_provider: cosyvoice3      # cosyvoice3 | qwen3tts | qwen3tts_vllm | cosyvoice3_vllm
+  asr_http: http://127.0.0.1:8101
+  tts_http: http://127.0.0.1:8102
+  asr_ws: ws://127.0.0.1:8101/asr
+  tts_ws: ws://127.0.0.1:8102/tts
+  asr_port: 8101
+  tts_port: 8102
+  token: ""
+
+# Selectable engine implementations. `python` may point at a separate venv:
+# Qwen3-TTS and Qwen3-ASR pin newer transformers versions than CosyVoice/FunASR.
+# Only one provider per stage is spawned; ASR and TTS may use different venvs.
+providers:
+  asr:
+    paraformer:
+      python: .venv/Scripts/python.exe
+      model: iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online
+      options:
+        chunk_ms: 600
+    qwen3asr:
+      python: envs/qwen3asr/Scripts/python.exe
+      model: models/Qwen3-ASR-0.6B
+      options:
+        device: cuda:0
+        dtype: bfloat16
+        language: null            # null = auto language detection
+        partial_interval_ms: 800
+        max_partial_seconds: 8
+        max_new_tokens: 512
+  tts:
+    cosyvoice3:
+      python: .venv/Scripts/python.exe
+      model: models/Fun-CosyVoice3-0.5B
+    qwen3tts:
+      python: envs/qwen3tts/Scripts/python.exe
+      model: models/Qwen3-TTS-12Hz-0.6B-Base
+      options:
+        language: Chinese
+        device: cuda:0
+        dtype: bfloat16
+        attn_implementation: sdpa
+        chunk_ms: 100
+        max_new_tokens: 4096          # hard cap; per-utterance cap is derived from text length
+        non_streaming_mode: false     # false = simulate streaming text input (still no audio stream)
+        do_sample: true
+    # Real audio streaming via an external vLLM-Omni container.
+    # Start deploy/vllm-omni first; this provider only proxies its WebSocket.
+    qwen3tts_vllm:
+      python: .venv/Scripts/python.exe
+      model: models/Qwen3-TTS-12Hz-0.6B-Base
+      options:
+        url: ws://127.0.0.1:8091/v1/audio/speech/stream
+        health_url: http://127.0.0.1:8091/health
+        container_root: /workspace
+        language: Chinese
+        response_format: pcm
+        split_granularity: null       # gateway already splits LLM output into clauses
+        startup_timeout_s: 600        # first vLLM start compiles/loads two stages
+        idle_reconnect_s: 20          # vLLM closes idle WS after 30s; recycle before
+        warmup: true                  # absorb the first-request CUDA/code2wav cost
+        warmup_text: "你好。"
+    # CosyVoice3 through a second vLLM-Omni container on port 8092
+    # (docker compose --profile cosyvoice3 up -d tts-cosyvoice3).
+    # No language/task_type: CosyVoice3 clones from ref_audio + ref_text only.
+    cosyvoice3_vllm:
+      python: .venv/Scripts/python.exe
+      model: models/Fun-CosyVoice3-0.5B
+      options:
+        url: ws://127.0.0.1:8092/v1/audio/speech/stream
+        health_url: http://127.0.0.1:8092/health
+        container_root: /workspace
+        response_format: pcm
+        split_granularity: null
+        startup_timeout_s: 600
+        idle_reconnect_s: 20
+        warmup: true
+        warmup_text: "你好。"
+
+llm:
+  enabled: true
+  mode: spawn            # external | spawn
+  server: bin/llama-cuda/llama-server.exe
+  model: models/Qwen3-1.7B-Q8_0.gguf
+  port: 8081
+  threads: 8
+  batch_threads: 16
+  ctx: 16384
+  slots: 2
+  n_gpu_layers: 99       # CUDA build offloads all layers; use bin/llama + 0 for CPU
+  kv_cache_type: q8_0    # f16 | q8_0 | q4_0; q8_0 halves KV so 16k fits in 8GB
+  batch_size: 512
+  ubatch_size: 256
+  max_tokens: 160
+  prompt_char_budget: 6000
+  temperature: 0.7
+  top_p: 0.9
+  history_turns: 8
+  warm: true
+
+conversation:
+  enabled: true
+  endpoint_silence_ms: 300
+  noise_override_ms: 500
+  merge_window_s: 1.6
+  barge_db: -30.0
+  barge_sustain_ms: 400
+  # 用户持续说话但仍没有 ASR partial 时，超过该时长也打断（防止流式识别被 TTS 拖慢）
+  barge_content_wait_ms: 900
+  min_speech_ms: 240
+  max_utterance_s: 20.0
+  preroll_ms: 450
+  voice: default
+  input_rate: 16000
+  output_rate: 24000
+  speech_gate: true
+  speech_gate_model: assets/silero_vad.onnx
+  speech_start_threshold: 0.5
+  speech_silence_threshold: 0.3
+  # Short "嗯/我在听" acknowledgements while the user keeps talking.
+  backchannel_enabled: true
+  backchannel_min_speech_s: 1.5
+  backchannel_interval_s: 6.0
+  backchannel_max_per_utterance: 2
+  backchannel_volume: 0.45
+  backchannel_phrases: ["嗯", "嗯嗯", "我在听"]
+
+voice_store:
+  dir: .data/voices
+  max_upload_mb: 20
+  min_seconds: 1.5
+  max_seconds: 30.0
+
+logging:
+  level: INFO
+  json_logs: true

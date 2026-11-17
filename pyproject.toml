@@ -1,0 +1,143 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "native-voice"
+version = "0.1.0"
+description = "Private, self-hosted full-duplex voice service with Bailian-compatible ASR/TTS WebSocket APIs"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Native Voice contributors" }]
+keywords = ["voice", "asr", "tts", "full-duplex", "websocket", "llm", "self-hosted"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "websockets>=12,<13",
+    "pydantic>=2.7,<3",
+    "PyYAML>=6,<7",
+    "prometheus-client>=0.20,<1",
+    "httpx>=0.28,<1",
+    "python-multipart>=0.0.9,<1",
+    "numpy>=1.26,<2",
+    "scipy>=1.11,<2",
+    "onnxruntime>=1.18,<2",
+    "soundfile>=0.12,<1",
+]
+
+[project.optional-dependencies]
+# GPU model runtime (torch/torchaudio 由下面的 uv 源指向 cu121 轮子).
+gpu = [
+    "torch==2.3.1",
+    "torchaudio==2.3.1",
+    "funasr>=1.2.7",
+    "modelscope>=1.20",
+    "transformers==4.51.3",
+    "x-transformers==2.11.24",
+    "soundfile>=0.12",
+    "requests>=2.32",
+    # third_party/CosyVoice-main 运行时依赖
+    "conformer>=0.3.2,<0.4",
+    "diffusers>=0.29,<0.31",
+    "einops>=0.8,<1",
+    "gdown>=5,<6",
+    "hyperpyyaml>=1.2,<2",
+    "inflect>=7,<8",
+    "librosa>=0.10,<0.11",
+    "lightning==2.2.4",
+    "matplotlib>=3.7,<4",
+    "omegaconf>=2.3,<3",
+    "openai-whisper==20231117",
+    "pyarrow>=18,<19",
+    "pyworld>=0.3.4,<0.4",
+    "regex>=2024",
+    "rich>=13,<14",
+    "tiktoken>=0.7",
+    "wget>=3.2,<4",
+    # lightning/torchmetrics 运行时仍会 import pkg_resources
+    "setuptools<81",
+]
+desktop = [
+    "sounddevice>=0.5",
+    "soundfile>=0.12",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/easyon/native-voice"
+Documentation = "https://github.com/easyon/native-voice/tree/main/docs"
+Issues = "https://github.com/easyon/native-voice/issues"
+Changelog = "https://github.com/easyon/native-voice/blob/main/CHANGELOG.md"
+
+[project.scripts]
+native-voice = "native_voice.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# The web client is served from the repository's top-level web/ directory.
+native_voice = ["py.typed"]
+
+[tool.uv]
+# onnxruntime 1.21+ 不再提供 cp310 轮子，Python 3.10 环境固定在 1.18/1.19。
+constraint-dependencies = ["onnxruntime<1.20; python_version < '3.11'"]
+
+# PyPI（含镜像）上的 Windows torch 轮子是 CPU 版，GPU 版只从 PyTorch 官方源的镜像取。
+# 官方 download.pytorch.org 在部分网络下不可达，这里用阿里云镜像（目录结构与官方一致）。
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://mirrors.aliyun.com/pytorch-wheels/cu121"
+format = "flat"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchaudio = { index = "pytorch-cu121" }
+
+# openai-whisper 的 setup.py 依赖 pkg_resources，需要旧版 setuptools 才能构建。
+[tool.uv.extra-build-dependencies]
+openai-whisper = ["setuptools<81"]
+
+[tool.pytest.ini_options]
+# "." 让 `import tests.fakes` 在任意工作目录下可用（tests 是命名空间包）。
+pythonpath = ["src", "."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "integration: requires GPU models and local assets",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Archival profiling scripts: imports follow sys.path manipulation, and the
+# long measurement print-outs are intentionally single-line.
+"benchmarks/*" = ["E402", "E501", "E701", "E702", "B007"]
+# Manual GPU checks deliberately import after adding desktop/ to sys.path.
+"tests/manual/*" = ["E402", "E501", "B007"]
