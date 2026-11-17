@@ -1,0 +1,81 @@
+name: Bug 报告
+description: 报告可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先搜索已有 Issue，并阅读 `docs/troubleshooting.md`。
+        请勿在 Issue 中包含 API Key、短票、用户音频或日志中的隐私信息。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述
+      description: 发生了什么？预期行为是什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 尽量给出最小复现命令或步骤
+      placeholder: |
+        1. 启动 ...
+        2. 连接 ...
+        3. 看到 ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 运行方式
+      options:
+        - 服务模式（serve_dev）
+        - 服务模式（手动启动）
+        - 单机 CLI（desktop）
+        - fake 后端 / 仅网页
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / commit
+      placeholder: "main @ a3e19bd"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: 操作系统、Python、torch/transformers、GPU/显存、驱动
+      placeholder: |
+        OS: Windows 11
+        Python: 3.10
+        torch: 2.3.1+cu121
+        GPU: RTX 4070 Laptop 8GB
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关配置与日志
+      render: shell
+      description: 隐去密钥、路径中的用户名和隐私内容
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已经搜索过已有 Issue
+          required: true
+        - label: 我已阅读 docs/troubleshooting.md
+          required: false

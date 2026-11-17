@@ -1,0 +1,44 @@
+# runtime / secrets
+.env
+.data/
+*.db
+*.db-journal
+*.log
+
+# model & binary assets (mounted at runtime); anchor to the repo root so the
+# source package src/native_voice/models/ is not ignored.
+/models/
+/bin/
+/third_party/
+/audio/
+.tmpdocs/
+.cache/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+envs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# web
+node_modules/
+web/dist/
+
+# local notes / scratch
+.screenshots/
+.trae-html-share-packages/
+tmp/
+scratch/
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
