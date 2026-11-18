@@ -98,6 +98,7 @@ uv run ruff check --fix src tests
 | 新增 TTS 模型 | `src/native_voice/models/tts/` + `backends/base.py` + `models/tts/factory.py` |
 | 修改百炼协议 | `src/native_voice/api/protocol/` |
 | 修改对话/打断逻辑 | `src/native_voice/conversation/` |
+| 新增/修改工具调用 | `src/native_voice/conversation/tools.py` |
 | 新增 REST 接口 | `src/native_voice/api/routers/` 并在 `api/app.py` 注册 |
 | 修改认证/配额 | `src/native_voice/security/` |
 | 修改网页 | `web/` |
@@ -112,6 +113,39 @@ uv run ruff check --fix src tests
 4. 如需要独立 venv，在 `scripts/setup_qwen_engines.*` 或文档中说明。
 5. 增加单元测试（可以用 fake/mock 避免加载大模型）。
 6. 更新 `docs/models.md` 的 provider 表和限制。
+
+### 新增内置工具
+
+工具定义的唯一入口是 `src/native_voice/conversation/tools.py` 的
+`BUILTIN_TOOLS`：
+
+```python
+def get_weather(city: str = "上海") -> str:
+    return f"{city}今天多云，18 到 24 度。"
+
+Tool(
+    name="get_weather",
+    description="查询城市天气。用户询问天气时调用。",
+    parameters={
+        "type": "object",
+        "properties": {"city": {"type": "string", "description": "城市名"}},
+        "required": [],
+    },
+    handler=get_weather,
+)
+```
+
+步骤：
+
+1. 实现 handler：同步或 `async` 均可，接收 JSON 参数同名关键字参数；
+   返回 `str`（或可 JSON 序列化的对象）。
+2. 在 `BUILTIN_TOOLS` 中注册，并在 `configs/service.yaml` 的 `llm.tools` 里启用。
+3. 保持轻量：handler 运行在网关事件循环里，单次默认 5 s 超时
+   （`Tool.timeout_s` 可调）；慢操作请自行封装 HTTP 客户端和更短超时。
+4. 加单元测试：正常返回、参数错误、异常、超时（参考 `tests/unit/test_tools.py`）。
+
+handler 抛出的异常、非法 JSON、未知工具都不会中断会话：注册表会把错误文本
+作为工具结果回填给模型，由模型决定怎么向用户解释。
 
 ## 6. 调试
 

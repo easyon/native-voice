@@ -12,7 +12,7 @@
 WebSocket 协议、对话 WebSocket、API Key / 配额 / Prometheus 指标，以及一个
 无需构建的网页客户端。
 
-> 全部推理可离线运行：Paraformer + Qwen3 + CosyVoice3，单张 8 GB 消费级显卡即可跑通。
+> 全部推理可离线运行：Paraformer + Qwen3.5 + CosyVoice3，单张 8 GB 消费级显卡即可跑通。
 
 ## 特性
 
@@ -20,6 +20,8 @@ WebSocket 协议、对话 WebSocket、API Key / 配额 / Prometheus 指标，以
   （backchannel）和 1.6 s 内的碎片合并。
 - **多 ASR / TTS 提供方**：Paraformer、Qwen3-ASR、CosyVoice3、Qwen3-TTS，
   以及通过 vLLM-Omni 实现的真流式 TTS。
+- **工具调用**：对话链路支持 function calling（内置当前时间、联网搜索、
+  网页读取），工具结果回填后继续生成口语回答，可用 `llm.tools` 配置启用或关闭。
 - **百炼兼容协议**：`/api-ws/v1/inference` 可直接接入现有百炼客户端。
 - **生产级网关**：API Key、scope、并发 / RPM / 每日额度、60 s 短票、
   结构化日志、低基数指标、健康检查。
@@ -43,7 +45,7 @@ WebSocket 协议、对话 WebSocket、API Key / 配额 / Prometheus 指标，以
               ├──────────────► ASR engine (GPU)   流式 Paraformer / Qwen3-ASR
               └──────────────► TTS engine (GPU)   CosyVoice3 / Qwen3-TTS
               │
-              └──HTTP────────► llama-server (CPU/GPU)   Qwen3
+              └──HTTP────────► llama-server (CPU/GPU)   Qwen3.5
 ```
 
 请求链路：`麦克风 16 kHz → VAD → ASR → LLM → TTS → 24 kHz 播放`。
@@ -78,7 +80,7 @@ uv run --extra gpu python scripts/fetch_deps.py
 uv run --extra gpu python scripts/fetch_deps.py --check   # 只检查缺件
 ```
 
-下载内容包括 CosyVoice3 权重、Qwen3 GGUF、llama.cpp、CosyVoice 源码等，
+下载内容包括 CosyVoice3 权重、Qwen3.5 GGUF、llama.cpp、CosyVoice 源码等，
 约 7 GB。模型默认优先从 ModelScope 获取，失败时回退 HuggingFace。
 
 ### 3. 启动服务
@@ -182,7 +184,7 @@ native-voice/
 ## 致谢
 
 - [FunASR](https://github.com/modelscope/FunASR) / [CosyVoice](https://github.com/FunAudioLLM/CosyVoice)
-- [Qwen](https://github.com/QwenLM/Qwen3)
+- [Qwen3.5](https://www.modelscope.cn/models/Qwen/Qwen3.5-2B)
 - [llama.cpp](https://github.com/ggml-org/llama.cpp)
 - [vLLM](https://github.com/vllm-project/vllm) / [vLLM-Omni](https://github.com/vllm-project/vllm-omni)
 - [Silero VAD](https://github.com/snakers4/silero-vad)

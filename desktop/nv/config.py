@@ -43,7 +43,7 @@ class Config:
     show_partials: bool = True
 
     # --- LLM (llama.cpp server, CPU) ---
-    llm_model: Path = ROOT / "models" / "Qwen3-1.7B-Q8_0.gguf"
+    llm_model: Path = ROOT / "models" / "Qwen3.5-2B-Q8_0.gguf"
     llama_server: Path = ROOT / "bin" / "llama" / "llama-server.exe"
     llama_port: int = 8081
     llama_threads: int = 8

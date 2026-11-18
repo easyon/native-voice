@@ -76,7 +76,7 @@ class LLMConfig:
     enabled: bool = True
     mode: str = "spawn"  # spawn | external
     server: Path = Path("bin/llama/llama-server.exe")
-    model: Path = Path("models/Qwen3-1.7B-Q8_0.gguf")
+    model: Path = Path("models/Qwen3.5-2B-Q8_0.gguf")
     port: int = 8081
     threads: int = 8
     batch_threads: int = 16
@@ -92,6 +92,14 @@ class LLMConfig:
     top_p: float = 0.9
     history_turns: int = 8
     warm: bool = True
+    # Function calling. Names refer to built-in tools in conversation/tools.py;
+    # an empty list disables tools entirely.
+    tools: list[str] = field(
+        default_factory=lambda: ["get_current_time", "web_search", "web_fetch"]
+    )
+    tool_choice: str = "auto"  # auto | required | none
+    max_tool_rounds: int = 3  # tool executions per user turn
+    tool_filler: str = "我查一下。"  # spoken before a tool runs; "" disables
     system_prompt: str = (
         "你是一个温暖、自然的中文语音助手，正在和用户进行实时语音通话。\n"
         "要求：\n"

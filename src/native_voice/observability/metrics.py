@@ -26,6 +26,13 @@ class Metrics:
         self.quota_rejections = Counter("nv_quota_rejections_total", "Rejected by admission", ["reason"])
         self.audio_seconds = Counter("nv_audio_seconds_total", "Processed audio seconds", ["task"])
         self.tts_characters = Counter("nv_tts_characters_total", "Synthesized characters")
+        self.tool_calls = Counter("nv_tool_calls_total", "Conversation tool calls", ["tool", "outcome"])
+        self.tool_seconds = Histogram(
+            "nv_tool_duration_seconds",
+            "Tool handler wall time",
+            ["tool"],
+            buckets=(0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10),
+        )
         self.ready = Gauge("nv_ready", "Service readiness (1=ready)")
 
 

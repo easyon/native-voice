@@ -70,5 +70,8 @@
 - 限制上传大小、消息大小和并发。
 - 定期备份 Key 数据库与 `.data/voices`，并限制文件权限。
 - 声音克隆必须保留 `consent` 校验和授权记录。
+- 不需要联网时关闭 `web_search` / `web_fetch`（`llm.tools` 只保留需要的工具）。
+  `web_fetch` 已限制为公网 http/https 并拒绝内网/回环/云元数据地址，但 DNS
+  解析与连接之间仍存在重绑定窗口，高安全场景建议在网关层限制出站流量。
 
 更多内容见 [docs/deployment.md](docs/deployment.md)。

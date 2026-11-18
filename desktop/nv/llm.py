@@ -20,8 +20,13 @@ def _suffix_prefix_len(text: str, token: str) -> int:
     return 0
 
 
+# Assembled from parts: some checkouts rewrite the literal tag on the way in.
+_TAG_OPEN = "<" + "think" + ">"
+_TAG_CLOSE = "<" + "/" + "think" + ">"
+
+
 class ThinkFilter:
-    """Strip Qwen3 ` thinking... response` blocks that may be split across deltas."""
+    """Strip Qwen3 reasoning blocks that may be split across deltas."""
 
     def __init__(self):
         self.pending = ""
@@ -32,22 +37,33 @@ class ThinkFilter:
         out: list[str] = []
         while True:
             if self.inside:
-                end_tag = " response"
-                idx = self.pending.find(end_tag)
+                idx = self.pending.find(_TAG_CLOSE)
                 if idx >= 0:
-                    self.pending = self.pending[idx + len(end_tag):]
+                    self.pending = self.pending[idx + len(_TAG_CLOSE):]
                     self.inside = False
                     continue
-                keep = _suffix_prefix_len(self.pending, end_tag)
+                keep = _suffix_prefix_len(self.pending, _TAG_CLOSE)
                 self.pending = self.pending[-keep:] if keep else ""
                 break
-            idx = self.pending.find(" thinking")
+
+            idx = self.pending.find(_TAG_OPEN)
             if idx >= 0:
                 out.append(self.pending[:idx])
-                self.pending = self.pending[idx + 7:]
+                self.pending = self.pending[idx + len(_TAG_OPEN):]
                 self.inside = True
                 continue
-            keep = _suffix_prefix_len(self.pending, " thinking")
+
+            # The opening tag may be dropped upstream; a bare closing tag then
+            # marks the end of reasoning that must not be spoken.
+            idx = self.pending.find(_TAG_CLOSE)
+            if idx >= 0:
+                self.pending = self.pending[idx + len(_TAG_CLOSE):]
+                continue
+
+            keep = max(
+                _suffix_prefix_len(self.pending, _TAG_OPEN),
+                _suffix_prefix_len(self.pending, _TAG_CLOSE),
+            )
             if keep:
                 out.append(self.pending[:-keep])
                 self.pending = self.pending[-keep:]
@@ -59,7 +75,11 @@ class ThinkFilter:
 
     def flush(self) -> str:
         text, self.pending = self.pending, ""
-        return "" if self.inside else text
+        if self.inside:
+            return ""
+        if text in (_TAG_OPEN[: len(text)], _TAG_CLOSE[: len(text)]):
+            return ""
+        return text
 
 
 class LlamaClient:
@@ -90,6 +110,8 @@ class LlamaClient:
             "-t", str(self.cfg.llama_threads),
             "--threads-batch", str(self.cfg.llama_batch_threads),
             "-np", "1",
+            # 使用 GGUF 内嵌 chat template（enable_thinking 等参数依赖它）。
+            "--jinja",
         ]
         print(f"[LLM] 启动 {self.cfg.llm_model.name} ...", flush=True)
         creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)

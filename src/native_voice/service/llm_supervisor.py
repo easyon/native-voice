@@ -63,6 +63,10 @@ class LLMSupervisor:
                 str(self.cfg.llm.batch_threads),
                 "-np",
                 str(self.cfg.llm.slots),
+                # Use the chat template embedded in the GGUF. Required for
+                # chat_template_kwargs (Qwen3 thinking switch) and for parsing
+                # tool calls into OpenAI-compatible tool_calls.
+                "--jinja",
                 *(
                     ["-ctk", self.cfg.llm.kv_cache_type, "-ctv", self.cfg.llm.kv_cache_type, "-fa", "on"]
                     if self.cfg.llm.kv_cache_type != "f16"

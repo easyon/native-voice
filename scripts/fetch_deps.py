@@ -3,7 +3,7 @@
 默认全部下载（模型优先走 ModelScope，失败或不存在时回退 HuggingFace）：
   models/Fun-CosyVoice3-0.5B      ModelScope FunAudioLLM/Fun-CosyVoice3-0.5B-2512
                                   (回退 HF FunAudioLLM/Fun-CosyVoice3-0.5B)
-  models/Qwen3-1.7B-Q8_0.gguf     ModelScope Qwen/Qwen3-1.7B-GGUF (回退 HF 同名仓库)
+  models/Qwen3.5-2B-Q8_0.gguf     ModelScope unsloth/Qwen3.5-2B-GGUF (回退 HF 同名仓库)
   bin/llama/                      llama.cpp GitHub release (win-cpu-x64)
   third_party/CosyVoice-main/     GitHub FunAudioLLM/CosyVoice (+ Matcha-TTS)
   ~/.cache/modelscope/...         ModelScope 流式 Paraformer（ASR）
@@ -54,9 +54,9 @@ TTS_FILES = [
     "CosyVoice-BlankEN/vocab.json",
 ]
 
-LLM_REPO = "Qwen/Qwen3-1.7B-GGUF"
-LLM_MS_REPO = "Qwen/Qwen3-1.7B-GGUF"
-LLM_FILE = "Qwen3-1.7B-Q8_0.gguf"
+LLM_REPO = "unsloth/Qwen3.5-2B-GGUF"
+LLM_MS_REPO = "unsloth/Qwen3.5-2B-GGUF"
+LLM_FILE = "Qwen3.5-2B-Q8_0.gguf"
 LLM_DEST = ROOT / "models" / LLM_FILE
 
 COSYVOICE_REPO = "FunAudioLLM/CosyVoice"

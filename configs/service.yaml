@@ -134,7 +134,7 @@ llm:
   enabled: true
   mode: spawn            # external | spawn
   server: bin/llama-cuda/llama-server.exe
-  model: models/Qwen3-1.7B-Q8_0.gguf
+  model: models/Qwen3.5-2B-Q8_0.gguf
   port: 8081
   threads: 8
   batch_threads: 16
@@ -150,6 +150,13 @@ llm:
   top_p: 0.9
   history_turns: 8
   warm: true
+  # 工具调用（function calling）。名称见 src/native_voice/conversation/tools.py，
+  # 置空列表即可整体关闭。
+  tools: [get_current_time, web_search, web_fetch]
+  # auto：由模型决定；required：每次都必须调用工具（仅调试用）；none：不提供工具
+  tool_choice: auto
+  max_tool_rounds: 3       # 每个用户回合最多执行的工具轮数
+  tool_filler: "我查一下。"  # 工具执行前先说的话，避免静默；置空则不插话
 
 conversation:
   enabled: true

@@ -18,15 +18,37 @@ from ..api.protocol.bailian.writer import ConnectionWriter
 from ..audio.pcm import float32_to_pcm16, pcm16_to_float32
 from ..backends.base import Backends
 from ..config.schema import ServiceConfig
+from ..models.llm.client import TextDelta, ToolCall
 from ..observability.metrics import METRICS
 from . import events
 from .ack import is_backchannel_text
 from .params import VadParams
 from .speech_gate import SpeechGate
 from .splitter import SentenceSplitter
+from .tools import ToolRegistry, build_tool_registry
 from .vad import EndpointVad, VadEvent
 
 log = logging.getLogger(__name__)
+
+
+def _runaway_repetition(
+    text: str, min_unit: int = 6, max_unit: int = 40, repeats: int = 3
+) -> bool:
+    """True when the generated tail repeats one short unit ``repeats`` times.
+
+    Sentence-level looping after a tool result is a known failure mode of small
+    models; detecting it early keeps TTS from speaking the same phrase forever.
+    """
+    n = len(text)
+    if n < min_unit * repeats:
+        return False
+    for unit in range(min_unit, max_unit + 1):
+        span = unit * repeats
+        if span > n:
+            break
+        if text[-span:] == text[-unit:] * repeats:
+            return True
+    return False
 
 
 @dataclass
@@ -77,6 +99,11 @@ class ConversationEngine:
         self.merge_text = ""
         self.voice = cfg.conversation.voice
         self.system_prompt = cfg.llm.system_prompt
+        self.max_tool_rounds = max(0, int(cfg.llm.max_tool_rounds))
+        self.tools: ToolRegistry = (
+            build_tool_registry(cfg.llm.tools) if self.max_tool_rounds > 0 else ToolRegistry()
+        )
+        self.tool_filler = (cfg.llm.tool_filler or "").strip()
         self._closed = False
         self._bc_task: asyncio.Task | None = None
         self._bc_cache: dict[tuple[str, str], bytes] = {}
@@ -361,6 +388,11 @@ class ConversationEngine:
         guidance = (
             "对话规则：这是同一通连续语音通话。不要重复上一轮已经说过的内容；"
             "如果用户是在回答你上一轮的问题，直接顺着回答，不要重新介绍或重问。"
+            "工具规则：你不知道当前日期、时间和星期，凡涉及这些信息必须先调用 "
+            "get_current_time，禁止猜测；不知道、不确定或可能过时的信息，必须先调用 "
+            "web_search，不要凭记忆回答；需要阅读具体网页时调用 web_fetch。"
+            "先调用工具再回答，不要复述用户的问题；不要把工具名、参数或原始返回值"
+            "念出来，用口语自然地转述结果。"
         )
         system = f"{self.system_prompt.rstrip()}\n{guidance}".strip()
         messages = [{"role": "system", "content": system}] + list(self.history)
@@ -412,24 +444,63 @@ class ConversationEngine:
         splitter = SentenceSplitter(soft_limit=2, hard_limit=6)
         first_sentence = True
         messages = self._messages()
+        tool_specs = self.tools.specs() if self.tools else None
+        tool_round = 0
         log.info(
-            "LLM turn roles=%s",
-            [(m["role"], len(m["content"])) for m in messages],
+            "LLM turn roles=%s tools=%s",
+            [(m["role"], len(m.get("content") or "")) for m in messages],
+            [spec["function"]["name"] for spec in tool_specs] if tool_specs else [],
         )
         try:
-            async for delta in self.llm.chat_stream(messages, turn.cancel):
-                if turn.cancel.is_set():
+            while not turn.cancel.is_set():
+                calls: list[ToolCall] = []
+                round_text = ""
+                # "required" only makes sense for the first round; after a tool
+                # result the model must be free to answer in words.
+                choice = None if tool_round == 0 else "auto"
+                async for event in self.llm.chat_stream_events(
+                    messages, tool_specs, turn.cancel, choice
+                ):
+                    if turn.cancel.is_set():
+                        break
+                    if isinstance(event, ToolCall):
+                        calls.append(event)
+                        continue
+                    if not isinstance(event, TextDelta) or not event.text:
+                        continue
+                    if turn.t_llm == 0:
+                        turn.t_llm = time.monotonic()
+                    round_text += event.text
+                    turn.text += event.text
+                    await self.writer.send_json(events.text_delta(turn.turn_id, event.text))
+                    for sentence in splitter.feed(event.text):
+                        await turn.queue.put(sentence)
+                        if first_sentence:
+                            first_sentence = False
+                            splitter.soft_limit = 18
+                            splitter.hard_limit = 42
+                    if _runaway_repetition(turn.text):
+                        # Small models sometimes loop after a tool result.  Stop
+                        # generating instead of synthesizing the same phrase
+                        # dozens of times.
+                        log.warning("LLM repetition detected, ending turn")
+                        calls = []
+                        break
+                if turn.cancel.is_set() or not calls:
                     break
-                if turn.t_llm == 0:
-                    turn.t_llm = time.monotonic()
-                turn.text += delta
-                await self.writer.send_json(events.text_delta(turn.turn_id, delta))
-                for sentence in splitter.feed(delta):
-                    await turn.queue.put(sentence)
-                    if first_sentence:
-                        first_sentence = False
-                        splitter.soft_limit = 18
-                        splitter.hard_limit = 42
+                if tool_specs is None:
+                    # Tools were not offered (disabled or round limit reached),
+                    # so a well-behaved server cannot return a usable call.
+                    log.warning("ignoring tool calls returned without tools")
+                    break
+                if self.tool_filler and turn.t_tts == 0:
+                    first_sentence = await self._speak_filler(turn, splitter, first_sentence)
+                await self._run_tools(turn, messages, calls, round_text)
+                tool_round += 1
+                if tool_round >= self.max_tool_rounds:
+                    # Next round must be the spoken answer, even if the model
+                    # would rather call yet another tool.
+                    tool_specs = None
         except Exception as exc:
             log.warning("conversation LLM failed: %r", exc)
             if not turn.cancel.is_set():
@@ -446,6 +517,59 @@ class ConversationEngine:
             await turn.queue.put(None)
             turn.llm_done = True
             await self._maybe_metrics(turn)
+
+    async def _speak_filler(
+        self, turn: Turn, splitter: SentenceSplitter, first_sentence: bool
+    ) -> bool:
+        """Say a short phrase before a tool runs so the line is not silent.
+
+        The filler becomes part of the turn's spoken text (and therefore of the
+        assistant history), which is what the user actually hears.
+        """
+        for sentence in splitter.flush():
+            await turn.queue.put(sentence)
+        if turn.t_llm == 0:
+            turn.t_llm = time.monotonic()
+        turn.text += self.tool_filler
+        await self.writer.send_json(events.text_delta(turn.turn_id, self.tool_filler))
+        await turn.queue.put(self.tool_filler)
+        if first_sentence:
+            splitter.soft_limit = 18
+            splitter.hard_limit = 42
+        return False
+
+    async def _run_tools(
+        self, turn: Turn, messages: list[dict], calls: list[ToolCall], round_text: str = ""
+    ) -> None:
+        """Execute tool calls and append the results for the next LLM round.
+
+        Tool traffic stays in the local ``messages`` list only: ``history``
+        holds the spoken conversation and is trimmed by plain string length.
+        """
+        normalized = [
+            {
+                "id": call.id or f"call_{uuid.uuid4().hex[:8]}",
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments or "{}"},
+            }
+            for call in calls
+        ]
+        # The chat template needs the assistant tool_calls message before the
+        # matching tool results. Content is only what this round said.
+        messages.append({"role": "assistant", "content": round_text, "tool_calls": normalized})
+        for item in normalized:
+            if turn.cancel.is_set():
+                return
+            function = item["function"]
+            name = function["name"]
+            await self.writer.send_json(events.tool_call(turn.turn_id, name, function["arguments"]))
+            started = time.monotonic()
+            ok, result = await self.tools.call(name, function["arguments"])
+            METRICS.tool_calls.labels(tool=name, outcome="ok" if ok else "error").inc()
+            METRICS.tool_seconds.labels(tool=name).observe(time.monotonic() - started)
+            log.info("tool %s -> %s", name, "ok" if ok else "error")
+            await self.writer.send_json(events.tool_result(turn.turn_id, name, ok, result))
+            messages.append({"role": "tool", "tool_call_id": item["id"], "content": result})
 
     async def _tts_loop(self, turn: Turn) -> None:
         try:

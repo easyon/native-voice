@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Any
 
 import numpy as np
 
+from ..models.llm.client import StreamDone, TextDelta, ToolCall
 from .base import ASRBackend, ASRSession, TTSBackend
 
 _FAKE_ASR_TEXT = "你好，这是一段测试语音"
@@ -79,17 +81,49 @@ class FakeASRSession(ASRSession):
 
 
 class FakeLLM:
-    """Canned streaming reply for UI/dev without llama-server."""
+    """Canned streaming reply for UI/dev without llama-server.
 
-    def __init__(self, chunks: list[str] | None = None):
+    ``script`` drives multi-round tool conversations.  Each entry is one
+    completion round and may contain ``text`` chunks and/or ``tool_calls``::
+
+        FakeLLM(script=[
+            {"tool_calls": [{"name": "get_current_time", "arguments": "{}"}]},
+            {"text": ["现在是", "下午三点。"]},
+        ])
+
+    Without a script every round streams :attr:`chunks`.
+    """
+
+    def __init__(self, chunks: list[str] | None = None, script: list[dict[str, Any]] | None = None):
         self.chunks = chunks or ["你好。", "我是本地语音助手，", "有什么可以帮你？"]
+        self.script = list(script or [])
+        # Introspection helpers for tests.
+        self.last_tools: list[dict] | None = None
+        self.last_messages: list[dict] = []
+        self.rounds = 0
 
-    async def chat_stream(self, messages, cancel=None):
-        for chunk in self.chunks:
+    async def chat_stream_events(self, messages, tools=None, cancel=None, tool_choice=None):
+        self.rounds += 1
+        self.last_tools = tools
+        self.last_messages = list(messages)
+        step = self.script.pop(0) if self.script else {"text": self.chunks}
+        for index, call in enumerate(step.get("tool_calls") or []):
+            yield ToolCall(
+                id=str(call.get("id") or f"call_{index}"),
+                name=str(call["name"]),
+                arguments=str(call.get("arguments") or "{}"),
+            )
+        for chunk in step.get("text") or []:
             if cancel is not None and cancel.is_set():
                 return
             await asyncio.sleep(0.02)
-            yield chunk
+            yield TextDelta(chunk)
+        yield StreamDone("stop")
+
+    async def chat_stream(self, messages, cancel=None):
+        async for event in self.chat_stream_events(messages, None, cancel):
+            if isinstance(event, TextDelta):
+                yield event.text
 
 
 class FakeASR(ASRBackend):

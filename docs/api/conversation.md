@@ -99,6 +99,8 @@ Key 需要 `conversation` scope。
 | `asr.final` | `text`, `sentence_id`, `begin_ms`, `end_ms` | 用户句定稿 |
 | `assistant.text.delta` | `turn_id`, `text` | LLM 文本增量 |
 | `assistant.text.done` | `turn_id`, `text` | 本轮文本完成 |
+| `assistant.tool.call` | `turn_id`, `name`, `arguments` | 开始执行工具（JSON 字符串参数） |
+| `assistant.tool.result` | `turn_id`, `name`, `ok`, `result` | 工具结果；`result` 已截断到合理长度 |
 | `tts.audio.start` | `turn_id`, `sentence_index`, `sample_rate`, `format` | 一句音频开始 |
 | `tts.audio.done` | `turn_id`, `sentence_index` | 一句音频结束 |
 | `assistant.audio.all_done` | `turn_id` | 本轮所有音频下发完毕 |
@@ -141,6 +143,27 @@ assistant.backchannel.done {backchannel_id}
 
 附和是**独立低音量音轨**：不要把它拼进本轮 assistant 音频，也不要计入
 `metrics.turn`。它不进入 LLM 历史，不产生用户轮次。
+
+### 工具调用
+
+服务端启用工具时（见 [configuration.md](../configuration.md#6-llm)），一轮对话可能
+包含多次生成：
+
+```text
+assistant.text.delta（可选，模型先说的话）
+assistant.tool.call   {name, arguments}
+assistant.tool.result {name, ok, result}
+assistant.text.delta（根据工具结果生成的回答）
+assistant.text.done
+```
+
+要点：
+
+- `arguments` 是模型生成的 JSON **字符串**，不保证一定合法；执行失败时
+  `tool.result.ok` 为 `false`，`result` 里是错误说明。
+- 工具调用不产生新轮次：`turn_id` 不变，`metrics.turn` 只在本轮结束时发送一次。
+- 工具结果只用于本轮生成，不写入跨轮 `history`；客户端可以忽略这两个事件。
+- 未配置工具或 `max_tool_rounds` 用尽时不会再出现 `assistant.tool.call`。
 
 ### 时延指标
 

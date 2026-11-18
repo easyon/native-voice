@@ -24,7 +24,7 @@ python desktop\voice_call.py
 前置条件：
 
 - conda 环境 `cosyvoice`（Python 3.10，torch 2.3.1+cu121，`x-transformers==2.11.24`）
-- `models/Fun-CosyVoice3-0.5B`、`models/Qwen3-1.7B-Q8_0.gguf`、`bin/llama/llama-server.exe`
+- `models/Fun-CosyVoice3-0.5B`、`models/Qwen3.5-2B-Q8_0.gguf`、`bin/llama/llama-server.exe`
 - SenseVoiceSmall / 流式 Paraformer 缓存
 - `sounddevice` 已安装
 

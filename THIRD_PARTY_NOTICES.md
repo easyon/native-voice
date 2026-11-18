@@ -8,7 +8,7 @@
 | FunASR | 流式 Paraformer、SenseVoice | https://github.com/modelscope/FunASR |
 | CosyVoice | CosyVoice3 TTS 源码与模型 | https://github.com/FunAudioLLM/CosyVoice |
 | Matcha-TTS | CosyVoice 依赖 | https://github.com/shivammehta25/Matcha-TTS |
-| Qwen3-1.7B | LLM（GGUF） | https://github.com/QwenLM/Qwen3 |
+| Qwen3.5-2B | LLM（GGUF，unsloth 量化） | https://www.modelscope.cn/models/Qwen/Qwen3.5-2B |
 | Qwen3-ASR | ASR 模型 | https://github.com/QwenLM/Qwen3-ASR |
 | Qwen3-TTS | TTS 模型 | https://github.com/QwenLM/Qwen3-TTS |
 | llama.cpp | LLM 推理二进制 | https://github.com/ggml-org/llama.cpp |

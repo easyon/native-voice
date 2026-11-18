@@ -56,7 +56,7 @@ uv run --extra gpu python scripts/fetch_deps.py
 |---|---|
 | `third_party/CosyVoice-main/` + Matcha-TTS | GitHub `FunAudioLLM/CosyVoice`、`shivammehta25/Matcha-TTS` |
 | `models/Fun-CosyVoice3-0.5B/` | ModelScope `FunAudioLLM/Fun-CosyVoice3-0.5B-2512` |
-| `models/Qwen3-1.7B-Q8_0.gguf` | ModelScope `Qwen/Qwen3-1.7B-GGUF` |
+| `models/Qwen3.5-2B-Q8_0.gguf` | ModelScope `unsloth/Qwen3.5-2B-GGUF` |
 | `bin/llama/` | llama.cpp release win-cpu-x64 |
 | 流式 Paraformer | ModelScope `iic/speech_paraformer-...-online`（首次启动也会自动下载） |
 
@@ -147,7 +147,7 @@ Token 只显示一次。`key list / disable / enable` 可管理已有 Key。
 前置条件：
 
 - conda 环境 `cosyvoice`（Python 3.10，torch 2.3.1+cu121，`x-transformers==2.11.24`）
-- 已下载 `models/Fun-CosyVoice3-0.5B`、`models/Qwen3-1.7B-Q8_0.gguf`、
+- 已下载 `models/Fun-CosyVoice3-0.5B`、`models/Qwen3.5-2B-Q8_0.gguf`、
   `bin/llama/llama-server.exe`，以及 SenseVoiceSmall / 流式 Paraformer 缓存
 - 安装 `sounddevice`：`pip install sounddevice`
 

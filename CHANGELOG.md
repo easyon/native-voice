@@ -13,11 +13,30 @@
   pre-commit、Dependabot。
 - `desktop/` 单机 CLI、`benchmarks/` 调优脚本、`tests/manual/` GPU 手工检查的独立目录。
 - 包元数据：项目链接、license、classifiers、`py.typed`。
+- 对话工具调用（function calling）：内置 `get_current_time`、`web_search`、
+  `web_fetch`，支持多轮工具执行、执行前垫话、结果回填、轮数上限和
+  `tool_choice` 配置。`web_fetch` 只允许公网 http/https 地址。
+- 新事件 `assistant.tool.call` / `assistant.tool.result`，新指标
+  `nv_tool_calls_total`、`nv_tool_duration_seconds`。
+- llama-server 启动参数增加 `--jinja`，使用模型内嵌 chat template。
+
+### Fixed
+
+- `ThinkFilter` 的分隔标签字面量异常，导致 `</think>` 可能被当作正文送进 TTS；
+  同时处理缺失开标签的推理残留。
+- 小模型在工具结果后重复生成时提前结束本轮，避免 TTS 反复朗读同一句。
+- 系统提示词明确声明“不知道当前时间”，修复询问“现在几点了”时模型直接编造时间
+  而不调用工具的问题。
+- 移除内置 `calculate` 工具（模型对简单运算可直接答对，收益有限）。
 
 ### Changed
 
 - 仓库目录重新划分：`app/` 拆分为 `desktop/`、`benchmarks/`、`tests/manual/`。
 - README 重写为项目入口，详细内容下沉到 `docs/`。
+- 默认 LLM 从 Qwen3-1.7B 切换为 Qwen3.5-2B（Q8_0 GGUF，约 2.0 GB），
+  工具调用在默认系统提示词下可稳定触发；`fetch_deps.py` 改为从
+  `unsloth/Qwen3.5-2B-GGUF` 下载。
+- 桌面 CLI 启动 llama-server 时同样加上 `--jinja`。
 
 ## [0.1.0] - 2026-11-16
 

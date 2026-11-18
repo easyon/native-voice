@@ -308,6 +308,16 @@ function handleMessage(event) {
       transcript.finishAssistant();
       setAiCaption(aiBuffer);
       break;
+    case "assistant.tool.call":
+      transcript.note(`正在调用工具：${msg.name}`);
+      setStatus("调用工具中…", "busy");
+      break;
+    case "assistant.tool.result": {
+      const result = String(msg.result || "").replace(/\s+/g, " ").slice(0, 80);
+      transcript.note(msg.ok ? `工具结果：${result}` : `工具失败：${result}`);
+      setStatus("思考中…", "busy");
+      break;
+    }
     case "tts.audio.start":
       backchannelActive = false;
       if (msg.turn_id !== currentTurnId) {

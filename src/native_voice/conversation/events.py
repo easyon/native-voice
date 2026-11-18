@@ -34,6 +34,25 @@ def text_done(turn_id: str, text: str) -> dict:
     return {"type": "assistant.text.done", "turn_id": turn_id, "text": text}
 
 
+def tool_call(turn_id: str, name: str, arguments: str) -> dict:
+    return {
+        "type": "assistant.tool.call",
+        "turn_id": turn_id,
+        "name": name,
+        "arguments": arguments,
+    }
+
+
+def tool_result(turn_id: str, name: str, ok: bool, result: str) -> dict:
+    return {
+        "type": "assistant.tool.result",
+        "turn_id": turn_id,
+        "name": name,
+        "ok": ok,
+        "result": result,
+    }
+
+
 def audio_start(turn_id: str, index: int, sample_rate: int) -> dict:
     return {
         "type": "tts.audio.start",

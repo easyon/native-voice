@@ -158,7 +158,7 @@ request:
   (measured `cold load+warmup=18.80 s`), so `/readyz` turns green only after
   the expensive initialization is done; the first user turn then sees ~0.55 s
   first audio.
-- End-to-end with streaming Paraformer + Qwen3-1.7B (CPU): `tts_first_ms=406`,
+- End-to-end with streaming Paraformer + CPU LLM (Qwen3-1.7B at the time): `tts_first_ms=406`,
   `total_ms=1078`; a cloned voice from `.data/voices` measured `tts_first_ms=594`,
   `total_ms=766`.
 

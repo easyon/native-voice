@@ -117,7 +117,7 @@ Linux 下 `Scripts/python.exe` 不存在时，supervisor 会自动映射到同�
 | `enabled` | `true` | 是否启用 LLM |
 | `mode` | `spawn` | `spawn` 由网关启动；`external` 连接已有服务 |
 | `server` | `bin/llama/llama-server.exe` | llama-server 二进制 |
-| `model` | `models/Qwen3-1.7B-Q8_0.gguf` | GGUF 模型 |
+| `model` | `models/Qwen3.5-2B-Q8_0.gguf` | GGUF 模型 |
 | `port` | `8081` | llama-server 端口 |
 | `threads` / `batch_threads` | `8` / `16` | CPU 线程 |
 | `ctx` | `16384` | 总上下文，按 `slots` 平分 |
@@ -129,7 +129,29 @@ Linux 下 `Scripts/python.exe` 不存在时，supervisor 会自动映射到同�
 | `prompt_char_budget` | `6000` | system + 历史字符预算 |
 | `temperature` / `top_p` | `0.7` / `0.9` | 采样 |
 | `history_turns` | `8` | 保留的历史轮数 |
+| `tools` | `[get_current_time, web_search, web_fetch]` | 启用的内置工具；空列表关闭工具调用 |
+| `tool_choice` | `auto` | 首轮工具选择：`auto` / `required` / `none` |
+| `max_tool_rounds` | `3` | 单轮用户输入最多执行几轮工具（`0` 关闭） |
+| `tool_filler` | `我查一下。` | 工具执行前先说的话，避免静默；空串关闭 |
 | `system_prompt` | 见配置 | 系统提示词 |
+
+工具调用说明：
+
+- 网关会给 llama-server 加 `--jinja`，由 GGUF 内嵌的 chat template 解析工具调用；
+  老版本或未带模板的模型无法使用。
+- `tool_choice: required` 只作用于用户回合的第一轮，工具结果返回后自动切回 `auto`，
+  避免模型反复调用。它适合调试，不适合作为生产默认值。
+- 默认的 Qwen3.5-2B 在默认系统提示词下实测可正确触发工具调用；模型越小或提示词
+  越复杂，触发越不稳定，必要时换用更大的 GGUF 或精简 `system_prompt`。
+- 工具执行在网关进程内完成，需保持轻量；具体实现与新增方式见
+  [development.md](development.md#新增内置工具)。
+- `web_search` 通过 Bing 的 RSS 接口（`?format=rss`）搜索，默认
+  `https://cn.bing.com/search`，可用环境变量 `NV_WEB_SEARCH_URL` 指向兼容端点
+  （中文查询会自动附加 `mkt=zh-CN`）；`web_fetch` 只允许公网 http/https 地址，
+  拒绝内网、回环、链接本地（含云元数据地址）和带用户名的 URL，并限制重定向、
+  响应大小与超时。
+- 两个联网工具默认都启用。离线部署或不需要联网时，把 `tools` 改成
+  `[get_current_time]` 或空列表。
 
 8 GB 显存场景通常把 LLM 放在 CPU：
 

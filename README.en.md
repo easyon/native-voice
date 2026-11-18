@@ -12,7 +12,7 @@ conversation WebSocket, API keys / quotas / Prometheus metrics, and a
 build-free browser client.
 
 Everything can run offline on a single 8 GB consumer GPU:
-Paraformer + Qwen3 + CosyVoice3.
+Paraformer + Qwen3.5 + CosyVoice3.
 
 > Detailed documentation is currently maintained in Chinese under [`docs/`](docs/README.md).
 > English translations are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -23,6 +23,9 @@ Paraformer + Qwen3 + CosyVoice3.
   semantic gate, backchannels, and 1.6 s fragment merging.
 - **Multiple ASR / TTS providers** — Paraformer, Qwen3-ASR, CosyVoice3,
   Qwen3-TTS, and true streaming TTS through vLLM-Omni.
+- **Tool calling** — the conversation loop supports function calling (current
+  time, web search, web page reading) with spoken fillers, tool-result round
+  trips, and a per-turn round limit.
 - **Bailian-compatible protocol** — `/api-ws/v1/inference` works with existing clients.
 - **Production gateway** — API keys, scopes, concurrency / RPM / daily quotas,
   60-second tickets, structured logs, low-cardinality metrics, health checks.
@@ -46,7 +49,7 @@ Browser / Bailian client / native client
               │ internal WebSocket
               ├──────────────► ASR engine (GPU)
               └──────────────► TTS engine (GPU)
-              └──HTTP────────► llama-server (CPU/GPU)  Qwen3
+              └──HTTP────────► llama-server (CPU/GPU)  Qwen3.5
 ```
 
 `microphone 16 kHz → VAD → ASR → LLM → TTS → 24 kHz playback`.
